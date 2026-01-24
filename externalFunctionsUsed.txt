@@ -1,0 +1,13 @@
+<sys/socket.h>
+    socket()
+    bind()
+    listen()
+    accept()
+    
+<netinet/in.h>
+    struct sockaddr_in
+
+<unistd.h>
+    read()
+    write()
+    close()

@@ -12,6 +12,9 @@ namespace HDE{
             ListeningSocket(int domain, int service, int protocol, int port, u_long interface, int bklg);
             
             void startListening();
+            int getSocketFileDescriptor() {
+                return HDE::SimpleSocket::getSock(); 
+            }
     };
 }
 
