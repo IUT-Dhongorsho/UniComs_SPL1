@@ -1,0 +1,30 @@
+Server:
+ g++ \
+-Icommon \
+-Iserver \
+server/main.cpp \
+server/auth/*.cpp \
+server/core/*.cpp \
+server/files/*.cpp \
+server/groups/*.cpp \
+server/network/*.cpp \
+server/routing/*.cpp \
+server/storage/*.cpp \
+common/**/*.cpp \
+-pthread \
+-o server_app
+
+
+
+Client:
+g++ \
+-Icommon \
+-Iclient \
+client/main.cpp \
+client/core/*.cpp \
+client/network/*.cpp \
+client/cli/*.cpp \
+client/handlers/*.cpp \
+common/**/*.cpp \
+-pthread \
+-o client_app

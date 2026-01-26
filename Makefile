@@ -1,43 +1,19 @@
+# Compiler and flags
 CXX = g++
-CXXFLAGS = -Wall -std=c++11 -pthread -I./Libraries/hdelibc
-LDFLAGS = -pthread -L./Libraries/hdelibc -lhdelibc
+CXXFLAGS = -std=c++17 -Wall -I. -I./common -I./server
 
-all: server client
+# Find all source files in server and common
+SERVER_SRCS = $(shell find server -name "*.cpp")
+COMMON_SRCS = $(shell find common -name "*.cpp")
+SRCS = $(SERVER_SRCS) $(COMMON_SRCS)
 
-# Build library
-libhdelibc.a: SimpleSocket.o BindingSocket.o ConnectingSocket.o ListeningSocket.o
-	ar rcs Libraries/hdelibc/libhdelibc.a $^
+# Target executable
+TARGET = server_app
 
-# Compile socket objects
-SimpleSocket.o: Libraries/hdelibc/Networking/Sockets/SimpleSocket.cpp
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+all: $(TARGET)
 
-BindingSocket.o: Libraries/hdelibc/Networking/Sockets/BindingSocket.cpp
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+$(TARGET): $(SRCS)
+	$(CXX) $(CXXFLAGS) $(SRCS) -pthread -o $(TARGET)
 
-ConnectingSocket.o: Libraries/hdelibc/Networking/Sockets/ConnectingSocket.cpp
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
-
-ListeningSocket.o: Libraries/hdelibc/Networking/Sockets/ListeningSocket.cpp
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
-
-# Build server
-server: ChatRoom/server.cpp libhdelibc.a
-	$(CXX) $(CXXFLAGS) -o ChatRoom/server $< $(LDFLAGS)
-
-# Build client
-client: ChatRoom/client.cpp libhdelibc.a
-	$(CXX) $(CXXFLAGS) -o ChatRoom/client $< $(LDFLAGS)
-
-# Run targets
-run-server: server
-	./ChatRoom/server
-
-run-client: client
-	./ChatRoom/client
-
-# Clean
 clean:
-	rm -f *.o Libraries/hdelibc/libhdelibc.a ChatRoom/server ChatRoom/client
-
-.PHONY: all clean run-server run-client
+	rm -f $(TARGET)
