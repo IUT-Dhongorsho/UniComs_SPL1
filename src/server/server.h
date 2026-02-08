@@ -5,7 +5,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include "../db/DB.h"
+#include "../db/Database.hpp"
 #include <string>
 #include <set>
 
