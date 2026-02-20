@@ -1,7 +1,6 @@
-table,field,position,type,nullable,default,primary_key,unique
-User,id,0,string,false,true,false
-User,name,1,string,false,true,false
-User,email,2,string,false,true,false
-User,password,3,string,false,true,false
-User,isActive,4,boolean,false,true,false
-User,isDeleted,5,boolean,false,true,false
+User,id,string,1,1
+User,name,string,0,0
+User,email,string,0,1
+User,password,string,0,0
+User,isActive,boolean,0,0
+User,isDeleted,boolean,0,0

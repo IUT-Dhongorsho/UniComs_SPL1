@@ -27,10 +27,10 @@ SERVER_SRCS = $(SERVER_DIR)/server.cpp \
               $(SERVER_DIR)/login.cpp \
               $(SERVER_DIR)/logout.cpp
 
-DB_SRCS = $(DB_DIR)/database.cpp \
-          $(DB_DIR)/databaseUtils.cpp \
-          $(DB_DIR)/user.cpp \
-          $(ENTRY_DIR)/entry.cpp
+DB_SRCS = $(DB_DIR)/Table_Engine.cpp \
+          $(DB_DIR)/Catalog.cpp \
+          $(DB_DIR)/indexer.cpp \
+          $(DB_DIR)/csv_storage.cpp \
 
 UTILS_SRCS = $(UTILS_DIR)/hostToNetShort.cpp \
              $(UTILS_DIR)/memorySet.cpp
