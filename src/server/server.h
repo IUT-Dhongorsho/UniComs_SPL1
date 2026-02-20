@@ -6,7 +6,9 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include "../db/Database.hpp"
+#include "../db/models/User.hpp"
 #include <string>
+#include <map>
 #include <set>
 
 using sockList = std::set<int>;
@@ -18,8 +20,8 @@ void Bind(int sockfd, int port);
 void Listen(int sockfd, int backlog);
 int Accept(int sockfd);
 
-std::string login(const Database<User> &db, const std::string &uname, const std::string &pass);
-bool logout(const Database<User> &db, const std::string &uname);
+std::string login(const Database &db, const std::string &uname, const std::string &pass);
+bool logout(const Database &db, const std::string &uname);
 void joinChatRoom(const std::string roomName, const int clientSock, sockToName &name, chatRoomToSockList &chatRooms);
 void leaveChatRoom(const std::string roomName, const int clientSock, const sockToName &names, chatRoomToSockList &chatRooms);
 std::string getPeopleList(const std::string &roomName, const sockToName &names, const chatRoomToSockList &chatRooms);

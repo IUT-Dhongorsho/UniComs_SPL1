@@ -22,7 +22,7 @@ void joinChatRoom(const std::string roomName, const int clientSock, sockToName &
     {
         std::stringstream notification;
         notification << "info" << "%%" << name[clientSock] << "%%" << "joined " << roomName;
-        
-        //Broadcast
+
+        // Broadcast
     }
 }

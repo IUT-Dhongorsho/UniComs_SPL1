@@ -21,7 +21,7 @@ public:
     Database() = default;
 
     // Initialize database by loading ddl and building table engines
-    void init(const std::string &ddlFile)
+    void init(const std::string &ddlFile = "src/db/ddl.csv")
     {
         catalog.load(ddlFile);
 
