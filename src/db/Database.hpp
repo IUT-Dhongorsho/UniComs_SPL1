@@ -1,11 +1,8 @@
 #pragma once
-
-#include <string>
 #include <unordered_map>
 #include <optional>
+#include <vector>
 #include <stdexcept>
-#include <iostream>
-
 #include "Catalog.hpp"
 #include "Table_Engine.hpp"
 #include "Exceptions.hpp"
@@ -17,119 +14,119 @@ private:
     std::unordered_map<std::string, TableEngine> engines;
     bool initialized = false;
 
+    void ensureInitialized() const
+    {
+        if (!initialized)
+            throw std::runtime_error("Database not initialized. Call init() first.");
+    }
+
 public:
     Database() = default;
 
-    // Initialize database by loading ddl and building table engines
     void init(const std::string &ddlFile = "src/db/ddl.csv")
     {
         catalog.load(ddlFile);
-
-        // Create table engines for all schemas
         for (const auto &pair : catalog.getAll())
         {
-            const std::string &tableName = pair.first;
-            const Schema &schema = pair.second;
-
-            engines.emplace(tableName, TableEngine(schema));
-            engines.at(tableName).load();
+            engines.emplace(pair.first, TableEngine(pair.second));
+            engines.at(pair.first).load();
         }
-
         initialized = true;
     }
 
-    // ================= TEMPLATE API (Facade) =================
-
+    // Create table if it does not exist yet
     template <typename T>
     void create()
     {
         ensureInitialized();
-
         Schema schema = T::schema();
-        const std::string tableName = schema.name;
-
-        if (catalog.hasTable(tableName))
-            throw std::runtime_error("Table already exists: " + tableName);
-
-        // Add schema to catalog (updates ddl.csv)
+        if (catalog.hasTable(schema.name))
+            return;
         catalog.addSchema(schema);
-
-        // Create a new TableEngine for this table
         TableEngine engine(schema);
-        engine.saveEmpty(); // creates the CSV with header
-
-        // Insert engine into engines map
-        engines.emplace(tableName, std::move(engine));
-
-        std::cout << "Table '" << tableName << "' created successfully.\n";
+        engine.saveEmpty();
+        engines.emplace(schema.name, std::move(engine));
     }
 
     template <typename T>
     void insert(const T &obj)
     {
         ensureInitialized();
-
-        std::string tableName = T::schema().name;
-
-        if (!catalog.hasTable(tableName))
-            throw TableNotFound("Table not found: " + tableName);
-
-        auto &engine = engines.at(tableName);
-        engine.insertRow(obj.serialize());
+        std::string name = T::schema().name;
+        if (!catalog.hasTable(name))
+            throw TableNotFound(name);
+        engines.at(name).insertRow(obj.serialize());
     }
 
     template <typename T>
-    std::optional<T> query(const std::string &field,
-                           const std::string &value)
+    std::optional<T> query(const std::string &field, const std::string &value)
     {
         ensureInitialized();
-
-        std::string tableName = T::schema().name;
-
-        if (!catalog.hasTable(tableName))
-            throw TableNotFound("Table not found: " + tableName);
-
-        auto &engine = engines.at(tableName);
-        auto row = engine.findByField(field, value);
-
-        if (!row.has_value())
+        std::string name = T::schema().name;
+        if (!catalog.hasTable(name))
+            throw TableNotFound(name);
+        auto row = engines.at(name).findByField(field, value);
+        if (!row)
             return std::nullopt;
+        return T::deserialize(*row);
+    }
 
-        return T::deserialize(row.value());
+    template <typename T>
+    std::vector<T> queryAll(const std::string &tableName, const std::string &field, const std::string &value)
+    {
+        std::vector<T> result;
+        auto rows = engines.at(tableName).findAllByField(field, value);
+        if (!rows.empty()) {
+            for (const auto &row : rows)
+                result.push_back(T::deserialize(row));
+        }
+        return result;
+    }
+
+    template <typename T>
+    std::vector<T> getAll(const std::string &tableName)
+    {
+        std::vector<T> result;
+        auto rows = engines.at(tableName).getAll();
+        if (!rows.empty()) {
+            for (const auto &row : rows)
+                result.push_back(T::deserialize(row));
+        }
+        return result;
     }
 
     template <typename T>
     void remove(const std::string &primaryKey)
     {
         ensureInitialized();
+        std::string name = T::schema().name;
+        if (!catalog.hasTable(name))
+            throw TableNotFound(name);
+        engines.at(name).deleteByPrimary(primaryKey);
+    }
 
-        std::string tableName = T::schema().name;
-
-        if (!catalog.hasTable(tableName))
-            throw TableNotFound("Table not found: " + tableName);
-
-        auto &engine = engines.at(tableName);
-        engine.deleteByPrimary(primaryKey);
+    template <typename T>
+    void removeAllByField(const std::string &field, const std::string &value)
+    {
+        ensureInitialized();
+        std::string name = T::schema().name;
+        if (!catalog.hasTable(name))
+            throw TableNotFound(name);
+        engines.at(name).deleteAllByField(field, value);
     }
 
     template <typename T>
     void update(const std::string &primaryKey, const T &newObj)
     {
         ensureInitialized();
-
-        std::string tableName = T::schema().name;
-
-        if (!catalog.hasTable(tableName))
-            throw TableNotFound("Table not found: " + tableName);
-
-        auto &engine = engines.at(tableName);
-        engine.updateByPrimary(primaryKey, newObj.serialize());
+        std::string name = T::schema().name;
+        if (!catalog.hasTable(name))
+            throw TableNotFound(name);
+        engines.at(name).updateByPrimary(primaryKey, newObj.serialize());
     }
 
-private:
-    void ensureInitialized() const
+    void delete_by_field(const std::string &tableName, const std::string &field, const std::string &value)
     {
-        if (!initialized)
-            throw std::runtime_error("Database not initialized. Call init() first.");
+        engines.at(tableName).deleteAllByField(field, value);
     }
 };

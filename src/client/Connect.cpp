@@ -1,20 +1,29 @@
 #include "client.h"
+#include <stdexcept>
+#include <cstring>
+#include <unistd.h>
 
-int Connect(int sockfd, const std::string &host, int port)
+int clientConnect(const std::string &host, int port)
 {
-    struct sockaddr_in server_addr;
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(port);
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0)
+        return -1;
 
-    inet_pton(AF_INET, host.c_str(), &(server_addr.sin_addr));
+    struct sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(static_cast<uint16_t>(port));
 
-    const int res = connect(
-        sockfd,
-        reinterpret_cast<struct sockaddr *>(&server_addr),
-        sizeof(server_addr));
-    if (res == -1)
+    if (inet_pton(AF_INET, host.c_str(), &addr.sin_addr) <= 0)
     {
-        throw std::runtime_error("Error in making connection");
+        close(fd);
+        return -1;
     }
-    return 0;
+
+    if (connect(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0)
+    {
+        close(fd);
+        return -1;
+    }
+
+    return fd;
 }

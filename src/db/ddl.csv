@@ -1,6 +1,0 @@
-User,id,string,1,1
-User,name,string,0,0
-User,email,string,0,1
-User,password,string,0,0
-User,isActive,boolean,0,0
-User,isDeleted,boolean,0,0

@@ -1,13 +1,9 @@
-#ifndef CLIENT_HEADER_H
-#define CLIENT_HEADER_H
-
-#include <iostream>
+#pragma once
+#include <string>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <string>
+#include "../utils/utils.h"
 
-int Socket();
-int Connect(int sockfd, const std::string &host, int port);
-
-#endif
+int  clientConnect(const std::string &host, int port);
+void runClient(int fd);

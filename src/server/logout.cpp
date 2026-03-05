@@ -1,9 +1,11 @@
 #include "server.h"
 
-bool logout(const Database<User> &db, const std::string &usrName) {
-    auto [user, found] = db.get(usrName);
-    if (!found) return false;
+bool logout(Database &db, const std::string &usrName) {
+    auto result = db.query<User>("username", usrName);
+    if (!result.has_value()) return false;
     
-    user.setStatus("0");
-    return db.update(user);
+    User user = result.value();
+    user.isActive = "false";
+    db.update<User>(user.id, user);
+    return true;
 }

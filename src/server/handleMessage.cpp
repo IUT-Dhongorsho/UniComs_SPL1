@@ -1,102 +1,57 @@
 #include "server.h"
-#include <sstream>
+#include <unistd.h>
 
-void handleMsg(const int currentClientSock, const chatRoomToSockList &chatRooms, const sockToName &clients, std::string msg)
+void handleClient(int fd, ServerState &state)
 {
-    // Find first delimiter
-    size_t firstDelim = msg.find("%%");
-    if (firstDelim == std::string::npos)
+    sendLine(fd, "INFO Welcome to ChatApp. Commands: SIGNUP LOGIN LOGOUT DM JOIN LEAVE MSG CREATE_ROOM LIST_ROOMS LIST_USERS LIST_MEMBERS HISTORY_DM HISTORY_ROOM");
+
+    while (true)
     {
-        // Invalid format
-        std::string errorMsg = "ERROR%%SERVER%%Invalid message format";
-        send(currentClientSock, errorMsg.c_str(), errorMsg.size(), 0);
-        return;
-    }
-
-    // Find second delimiter
-    size_t secondDelim = msg.find("%%", firstDelim + 2);
-    if (secondDelim == std::string::npos)
-    {
-        // No message content
-        std::string errorMsg = "ERROR%%SERVER%%No message content";
-        send(currentClientSock, errorMsg.c_str(), errorMsg.size(), 0);
-        return;
-    }
-
-    std::string chatRoomName = msg.substr(0, firstDelim);
-    std::string senderInfo = msg.substr(firstDelim + 2, secondDelim - firstDelim - 2);
-    std::string text = msg.substr(secondDelim + 2);
-
-    // Check if chatroom exists
-    if (chatRooms.count(chatRoomName) == 0)
-    {
-        std::string errorMsg = "ERROR%%SERVER%%Chatroom " + chatRoomName + " doesn't exist";
-        send(currentClientSock, errorMsg.c_str(), errorMsg.size(), 0);
-        return;
-    }
-
-    // Check if user is in the chatroom
-    const auto &roomMembers = chatRooms.at(chatRoomName);
-    if (roomMembers.count(currentClientSock) == 0)
-    {
-        std::string errorMsg = "ERROR%%SERVER%%You must join " + chatRoomName + " first";
-        send(currentClientSock, errorMsg.c_str(), errorMsg.size(), 0);
-        return;
-    }
-
-    std::stringstream msgStream;
-    msgStream << "MSG%%" << senderInfo << "#" << chatRoomName << "%%" << text;
-    std::string msgToSend = msgStream.str();
-
-    if (!text.empty() && text[0] == '@')
-    {
-        // Extract username after @
-        size_t spacePos = text.find(' ');
-        std::string receiverName;
-
-        if (spacePos == std::string::npos)
+        std::string line = recvLine(fd);
+        if (line.empty())
         {
-            receiverName = text.substr(1);
-        }
-        else
-        {
-            receiverName = text.substr(1, spacePos - 1);
+            std::cout << "[server] Client fd=" << fd << " disconnected\n";
+            break;
         }
 
-        receiverName.erase(receiverName.find_last_not_of(" \t\n\r\f\v") + 1);
-        receiverName.erase(0, receiverName.find_first_not_of(" \t\n\r\f\v"));
+        auto parts = splitMessage(line, ' ', 3); // cmd arg1 rest...
+        if (parts.empty())
+            continue;
 
-        int receiverSock = -1;
-        for (const auto &[sock, name] : clients)
+        std::string cmd = parts[0];
+
+        // Commands that don't require login
+        if (cmd == "SIGNUP")      { cmdSignup(fd, parts, state); continue; }
+        if (cmd == "LOGIN")       { cmdLogin(fd, parts, state);  continue; }
+
+        // All other commands require login
         {
-            if (name == receiverName)
+            std::lock_guard<std::mutex> lock(state.mtx);
+            if (!state.sessions[fd].loggedIn)
             {
-                receiverSock = sock;
-                break;
+                sendLine(fd, "ERR Not logged in");
+                continue;
             }
         }
 
-        if (receiverSock != -1 && roomMembers.count(receiverSock) != 0)
-        {
-            send(receiverSock, msgToSend.c_str(), msgToSend.size(), 0);
-
-            std::string confirmMsg = "MSG%%SERVER%%Private message sent to @" + receiverName;
-            send(currentClientSock, confirmMsg.c_str(), confirmMsg.size(), 0);
-        }
-        else
-        {
-            std::string errorMsg = "ERROR%%SERVER%%User @" + receiverName +
-                                   " not found or not in this room";
-            send(currentClientSock, errorMsg.c_str(), errorMsg.size(), 0);
-        }
-        return;
+        if      (cmd == "LOGOUT")       cmdLogout(fd, state);
+        else if (cmd == "DM")           cmdDm(fd, parts, state);
+        else if (cmd == "JOIN")         cmdJoin(fd, parts, state);
+        else if (cmd == "LEAVE")        cmdLeave(fd, parts, state);
+        else if (cmd == "MSG")          cmdMsg(fd, parts, state);
+        else if (cmd == "CREATE_ROOM")  cmdCreateRoom(fd, parts, state);
+        else if (cmd == "LIST_ROOMS")   cmdListRooms(fd, state);
+        else if (cmd == "LIST_MEMBERS") cmdListMembers(fd, parts, state);
+        else if (cmd == "LIST_USERS")   cmdListUsers(fd, state);
+        else if (cmd == "HISTORY_DM")   cmdHistoryDm(fd, parts, state);
+        else if (cmd == "HISTORY_ROOM") cmdHistoryRoom(fd, parts, state);
+        else                            sendLine(fd, "ERR Unknown command");
     }
 
-    for (int clientSock : roomMembers)
-    {
-        if (clientSock != currentClientSock)
-        {
-            send(clientSock, msgToSend.c_str(), msgToSend.size(), 0);
-        }
-    }
+    // Cleanup on disconnect
+    std::lock_guard<std::mutex> lock(state.mtx);
+    for (auto &[roomName, fds] : state.rooms)
+        fds.erase(fd);
+    state.sessions.erase(fd);
+    close(fd);
 }

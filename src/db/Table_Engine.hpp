@@ -30,6 +30,10 @@ public:
     findByField(const std::string &field,
                 const std::string &value);
 
+    std::vector<std::vector<std::string>> findAllByField(const std::string &field, const std::string &value);
+    std::vector<std::vector<std::string>> getAll();
+    void deleteAllByField(const std::string &field, const std::string &value);
+
     // Delete a row by primary key
     void deleteByPrimary(const std::string &key);
 

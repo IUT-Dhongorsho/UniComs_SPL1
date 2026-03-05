@@ -27,21 +27,21 @@ void IndexManager::build(const Schema &schema,
 
 bool IndexManager::primaryExists(const std::string &key) const
 {
-    return primaryIndex.contains(key);
+    return primaryIndex.find(key) != primaryIndex.end();
 }
 
 bool IndexManager::uniqueExists(const std::string &field,
                                 const std::string &value) const
 {
-    if (!uniqueIndexes.contains(field))
+    if (uniqueIndexes.find(field) == uniqueIndexes.end())
         return false;
 
-    return uniqueIndexes.at(field).contains(value);
+    return uniqueIndexes.at(field).find(value) != uniqueIndexes.at(field).end();
 }
 
 std::optional<size_t> IndexManager::findByPrimary(const std::string &key) const
 {
-    if (!primaryIndex.contains(key))
+    if (primaryIndex.find(key) == primaryIndex.end())
         return std::nullopt;
 
     return primaryIndex.at(key);
@@ -50,10 +50,10 @@ std::optional<size_t> IndexManager::findByPrimary(const std::string &key) const
 std::optional<size_t> IndexManager::findByUnique(const std::string &field,
                                                  const std::string &value) const
 {
-    if (!uniqueIndexes.contains(field))
+    if (uniqueIndexes.find(field) == uniqueIndexes.end())
         return std::nullopt;
 
-    if (!uniqueIndexes.at(field).contains(value))
+    if (uniqueIndexes.at(field).find(value) == uniqueIndexes.at(field).end())
         return std::nullopt;
 
     return uniqueIndexes.at(field).at(value);

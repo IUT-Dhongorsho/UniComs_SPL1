@@ -1,30 +1,90 @@
 #include "server.h"
-#include <string>
 
-std::string login(
-    const Database<User> &db,
-    const std::string &usrName,
-    const std::string &password)
+// SIGNUP <username> <password>
+void cmdSignup(int fd, const std::vector<std::string> &args, ServerState &state)
 {
-    auto [user, found] = db.get(usrName);
-
-    if (!found)
+    if (args.size() < 3)
     {
-        db.add(User({usrName, password, "active"}));
-        std::cout << "Client not found. Registering as new user" << "\n";
-        return "SUCCESS";
+        sendLine(fd, "ERR Usage: SIGNUP <username> <password>");
+        return;
     }
 
-    if (user.getPassword() == password)
+    const std::string &username = args[1];
+    const std::string &password = args[2];
+
+    std::lock_guard<std::mutex> lock(state.mtx);
+
+    if (state.db.query<User>("username", username))
     {
-        if (user.getStatus() == "active")
+        sendLine(fd, "ERR Username already taken");
+        return;
+    }
+
+    User user{generateId(), username, password};
+    try
+    {
+        state.db.insert(user);
+        sendLine(fd, "OK Signup successful. You can now LOGIN.");
+    }
+    catch (const std::exception &e)
+    {
+        sendLine(fd, std::string("ERR ") + e.what());
+    }
+}
+
+// LOGIN <username> <password>
+void cmdLogin(int fd, const std::vector<std::string> &args, ServerState &state)
+{
+    if (args.size() < 3)
+    {
+        sendLine(fd, "ERR Usage: LOGIN <username> <password>");
+        return;
+    }
+
+    const std::string &username = args[1];
+    const std::string &password = args[2];
+
+    std::lock_guard<std::mutex> lock(state.mtx);
+
+    if (state.sessions[fd].loggedIn)
+    {
+        sendLine(fd, "ERR Already logged in");
+        return;
+    }
+
+    auto user = state.db.query<User>("username", username);
+    if (!user || user->password != password)
+    {
+        sendLine(fd, "ERR Invalid username or password");
+        return;
+    }
+
+    // Check not already logged in on another connection
+    for (const auto &[ofd, sess] : state.sessions)
+        if (sess.loggedIn && sess.userId == user->id)
         {
-            return "Already logged in! Logout first to start new session";
+            sendLine(fd, "ERR Already logged in on another connection");
+            return;
         }
-        user.setStatus("active");
-        db.update(user);
-        return "SUCCESS";
-    }
 
-    return "Invalid credentials";
+    state.sessions[fd].loggedIn = true;
+    state.sessions[fd].userId   = user->id;
+    state.sessions[fd].username = user->username;
+
+    sendLine(fd, "OK Logged in as " + username);
+}
+
+// LOGOUT
+void cmdLogout(int fd, ServerState &state)
+{
+    std::lock_guard<std::mutex> lock(state.mtx);
+
+    for (auto &[roomName, fds] : state.rooms)
+        fds.erase(fd);
+
+    state.sessions[fd].loggedIn = false;
+    state.sessions[fd].userId.clear();
+    state.sessions[fd].username.clear();
+
+    sendLine(fd, "OK Logged out");
 }

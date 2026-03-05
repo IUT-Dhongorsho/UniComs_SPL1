@@ -1,32 +1,81 @@
-#ifndef SERVER_HEADER_H
-#define SERVER_HEADER_H
-
+#pragma once
 #include <iostream>
+#include <string>
+#include <map>
+#include <set>
+#include <mutex>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include "../db/Database.hpp"
 #include "../db/models/User.hpp"
-#include <string>
-#include <map>
-#include <set>
+#include "../db/models/Message.hpp"
+#include "../db/models/Chatroom.hpp"
+#include "../db/models/Chatroommember.hpp"
+#include "../utils/utils.h"
 
-using sockList = std::set<int>;
-using sockToName = std::map<int, std::string>;
-using chatRoomToSockList = std::map<std::string, sockList>;
+// ---- Protocol ----
+// All messages are newline-terminated strings.
+// Client → Server commands:
+//   SIGNUP <username> <password>
+//   LOGIN <username> <password>
+//   LOGOUT
+//   DM <username> <message...>
+//   JOIN <roomName>
+//   LEAVE <roomName>
+//   MSG <roomName> <message...>
+//   CREATE_ROOM <roomName>
+//   LIST_ROOMS
+//   LIST_MEMBERS <roomName>
+//   LIST_USERS
+//   HISTORY_DM <username>
+//   HISTORY_ROOM <roomName>
+//
+// Server → Client responses:
+//   OK [optional info]
+//   ERR <reason>
+//   MSG_FROM <from> <message...>           (incoming DM)
+//   ROOM_MSG <room> <from> <message...>    (incoming group message)
+//   INFO <text>                            (informational notices)
 
-int Socket();
-void Bind(int sockfd, int port);
-void Listen(int sockfd, int backlog);
-int Accept(int sockfd);
+// Session state per connected client
+struct ClientSession
+{
+    int fd;
+    std::string userId;   // empty if not logged in
+    std::string username; // empty if not logged in
+    bool loggedIn = false;
+};
 
-std::string login(const Database &db, const std::string &uname, const std::string &pass);
-bool logout(const Database &db, const std::string &uname);
-void joinChatRoom(const std::string roomName, const int clientSock, sockToName &name, chatRoomToSockList &chatRooms);
-void leaveChatRoom(const std::string roomName, const int clientSock, const sockToName &names, chatRoomToSockList &chatRooms);
-std::string getPeopleList(const std::string &roomName, const sockToName &names, const chatRoomToSockList &chatRooms);
-std::string getClientInfo(const int clientSock);
-void handleMsg(const int currentClientSock, const chatRoomToSockList &chatRooms, const sockToName &clients, std::string msg);
-std::string getChatroomList(const chatRoomToSockList &chatRooms);
+// Global server state (shared across threads)
+struct ServerState
+{
+    std::mutex mtx;
+    std::map<int, ClientSession> sessions;       // fd → session
+    std::map<std::string, std::set<int>> rooms;  // roomName → set of fds currently in room
+    Database db;
+};
 
-#endif
+// Socket setup
+int  serverSocket();
+void serverBind(int sockfd, int port);
+void serverListen(int sockfd, int backlog);
+int  serverAccept(int sockfd);
+
+// Client handler (runs in its own thread)
+void handleClient(int clientFd, ServerState &state);
+
+// Command handlers (called from handleClient)
+void cmdSignup(int fd, const std::vector<std::string> &args, ServerState &state);
+void cmdLogin(int fd, const std::vector<std::string> &args, ServerState &state);
+void cmdLogout(int fd, ServerState &state);
+void cmdDm(int fd, const std::vector<std::string> &args, ServerState &state);
+void cmdJoin(int fd, const std::vector<std::string> &args, ServerState &state);
+void cmdLeave(int fd, const std::vector<std::string> &args, ServerState &state);
+void cmdMsg(int fd, const std::vector<std::string> &args, ServerState &state);
+void cmdCreateRoom(int fd, const std::vector<std::string> &args, ServerState &state);
+void cmdListRooms(int fd, ServerState &state);
+void cmdListMembers(int fd, const std::vector<std::string> &args, ServerState &state);
+void cmdListUsers(int fd, ServerState &state);
+void cmdHistoryDm(int fd, const std::vector<std::string> &args, ServerState &state);
+void cmdHistoryRoom(int fd, const std::vector<std::string> &args, ServerState &state);
