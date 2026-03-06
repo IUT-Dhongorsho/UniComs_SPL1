@@ -7,6 +7,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <ctime>
+#include "sha256.h"
+#include <fstream>
 
 std::string generateId()
 {
@@ -78,4 +80,47 @@ std::string recvLine(int fd)
     if (!result.empty() && result.back() == '\r')
         result.pop_back();
     return result;
+}
+
+std::string generateSalt()
+{
+    std::ifstream urandom("/dev/urandom", std::ios::binary);
+    if (!urandom) throw std::runtime_error("Cannot open /dev/urandom");
+
+    unsigned char buf[16];
+    urandom.read(reinterpret_cast<char*>(buf), sizeof(buf));
+
+    std::ostringstream ss;
+    for (int i = 0; i < 16; ++i)
+        ss << std::hex << std::setw(2) << std::setfill('0') << (int)buf[i];
+    return ss.str();
+}
+
+std::string hashPassword(const std::string &password)
+{
+    std::string salt = generateSalt();
+    std::string hash = sha256(salt + password);
+    for (int i = 0; i < 10000; ++i)
+        hash = sha256(hash);
+    return salt + ":" + hash;
+}
+
+bool verifyPassword(const std::string &password, const std::string &stored)
+{
+    auto colon = stored.find(':');
+    if (colon == std::string::npos) return false;
+
+    std::string salt = stored.substr(0, colon);
+    std::string expected = stored.substr(colon + 1);
+
+    std::string hash = sha256(salt + password);
+    for (int i = 0; i < 10000; ++i)
+        hash = sha256(hash);
+
+    // Constant-time compare
+    if (hash.size() != expected.size()) return false;
+    unsigned char diff = 0;
+    for (size_t i = 0; i < hash.size(); ++i)
+        diff |= hash[i] ^ expected[i];
+    return diff == 0;
 }

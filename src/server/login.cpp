@@ -20,7 +20,7 @@ void cmdSignup(int fd, const std::vector<std::string> &args, ServerState &state)
         return;
     }
 
-    User user{generateId(), username, password};
+    User user{generateId(), username, hashPassword(password)};
     try
     {
         state.db.insert(user);
@@ -53,7 +53,7 @@ void cmdLogin(int fd, const std::vector<std::string> &args, ServerState &state)
     }
 
     auto user = state.db.query<User>("username", username);
-    if (!user || user->password != password)
+    if (!user || !verifyPassword(password, user->password))
     {
         sendLine(fd, "ERR Invalid username or password");
         return;

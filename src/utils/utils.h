@@ -29,3 +29,8 @@ bool sendLine(int fd, const std::string &msg);
 
 // Receive a full line from a socket (blocking)
 std::string recvLine(int fd);
+
+// Password hashing (SHA-256 + salt + iterations)
+std::string generateSalt();
+std::string hashPassword(const std::string &password);
+bool        verifyPassword(const std::string &password, const std::string &stored);
