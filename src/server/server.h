@@ -47,6 +47,13 @@ struct ClientSession
     bool loggedIn = false;
 };
 
+struct PendingFileOffer
+{
+    int      senderFd;
+    std::string filename;
+    size_t   filesize;
+};
+
 // Global server state (shared across threads)
 struct ServerState
 {
@@ -54,6 +61,7 @@ struct ServerState
     std::map<int, ClientSession> sessions;       // fd → session
     std::map<std::string, std::set<int>> rooms;  // roomName → set of fds currently in room
     Database db;
+    std::map<int, PendingFileOffer> pendingFiles;   // receiverFd → offer
 };
 
 // Socket setup
@@ -79,3 +87,9 @@ void cmdListMembers(int fd, const std::vector<std::string> &args, ServerState &s
 void cmdListUsers(int fd, ServerState &state);
 void cmdHistoryDm(int fd, const std::vector<std::string> &args, ServerState &state);
 void cmdHistoryRoom(int fd, const std::vector<std::string> &args, ServerState &state);
+
+void cmdFileSend(int fd, const std::vector<std::string> &args, ServerState &state);
+void cmdFileAccept(int fd, const std::vector<std::string> &args, ServerState &state);
+void cmdFileReject(int fd, const std::vector<std::string> &args, ServerState &state);
+void cmdFileData(int fd, const std::vector<std::string> &args, ServerState &state);
+void cmdFileEnd(int fd, ServerState &state);

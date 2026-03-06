@@ -14,7 +14,7 @@ void handleClient(int fd, ServerState &state)
             break;
         }
 
-        auto parts = splitMessage(line, ' ', 3); // cmd arg1 rest...
+        auto parts = splitMessage(line, ' ', 5); // cmd arg1 rest...
         if (parts.empty())
             continue;
 
@@ -45,6 +45,11 @@ void handleClient(int fd, ServerState &state)
         else if (cmd == "LIST_USERS")   cmdListUsers(fd, state);
         else if (cmd == "HISTORY_DM")   cmdHistoryDm(fd, parts, state);
         else if (cmd == "HISTORY_ROOM") cmdHistoryRoom(fd, parts, state);
+        else if (cmd == "FILE_SEND")   cmdFileSend(fd, parts, state);
+        else if (cmd == "FILE_ACCEPT") cmdFileAccept(fd, parts, state);
+        else if (cmd == "FILE_REJECT") cmdFileReject(fd, parts, state);
+        else if (cmd == "FILE_DATA")   cmdFileData(fd, parts, state);
+        else if (cmd == "FILE_END")    cmdFileEnd(fd, state);
         else                            sendLine(fd, "ERR Unknown command");
     }
 
@@ -55,3 +60,4 @@ void handleClient(int fd, ServerState &state)
     state.sessions.erase(fd);
     close(fd);
 }
+
