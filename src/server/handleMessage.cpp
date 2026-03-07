@@ -14,7 +14,7 @@ void handleClient(int fd, ServerState &state)
             break;
         }
 
-        auto parts = splitMessage(line, ' ', 5); // cmd arg1 rest...
+        auto parts = splitMessage(line, ' ', 3); // cmd arg1 rest...
         if (parts.empty())
             continue;
 
