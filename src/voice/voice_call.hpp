@@ -18,7 +18,7 @@ public:
     }
 
     std::string       peerIp;
-    int               peerPort = 0;
+    std::atomic<int>  peerPort{0};
     std::atomic<bool> active{false};
     UDPSocket         udp;
 

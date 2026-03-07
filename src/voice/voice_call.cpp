@@ -5,7 +5,7 @@
 
 void VoiceCall::start(const std::string &ip, int port)
 {
-    stop(); // <-- FIX: Safely join existing threads before overriding them
+    stop(); // Safely join existing threads before overriding them
 
     peerIp   = ip;
     peerPort = port;
@@ -30,12 +30,11 @@ void VoiceCall::stop()
 
 void VoiceCall::captureLoop()
 {
-    // REMOVED Pa_Initialize()
 
     PaDeviceIndex dev = Pa_GetDefaultInputDevice();
     if (dev == paNoDevice) {
         std::cerr << "[voice] No input device\n";
-        return; // REMOVED Pa_Terminate()
+        return;
     }
 
     PaStreamParameters p{};
@@ -50,7 +49,7 @@ void VoiceCall::captureLoop()
                                 RATE, FRAMES, paClipOff, nullptr, nullptr);
     if (err != paNoError) {
         std::cerr << "[voice] Capture open: " << Pa_GetErrorText(err) << "\n";
-        return; // REMOVED Pa_Terminate()
+        return;
     }
 
     Pa_StartStream(stream);
@@ -68,17 +67,15 @@ void VoiceCall::captureLoop()
 
     Pa_StopStream(stream);
     Pa_CloseStream(stream);
-    // REMOVED Pa_Terminate()
 }
 
 void VoiceCall::receiveLoop()
 {
-    // REMOVED Pa_Initialize()
 
     PaDeviceIndex dev = Pa_GetDefaultOutputDevice();
     if (dev == paNoDevice) {
         std::cerr << "[voice] No output device\n";
-        return; // REMOVED Pa_Terminate()
+        return;
     }
 
     PaStreamParameters p{};
@@ -93,7 +90,7 @@ void VoiceCall::receiveLoop()
                                 RATE, FRAMES, paClipOff, nullptr, nullptr);
     if (err != paNoError) {
         std::cerr << "[voice] Playback open: " << Pa_GetErrorText(err) << "\n";
-        return; // REMOVED Pa_Terminate()
+        return;
     }
 
     Pa_StartStream(stream);
@@ -126,5 +123,4 @@ void VoiceCall::receiveLoop()
 
     Pa_StopStream(stream);
     Pa_CloseStream(stream);
-    // REMOVED Pa_Terminate()
 }
