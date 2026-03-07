@@ -259,7 +259,7 @@ int main(int argc, char *argv[])
         std::cerr << "Failed to connect to " << host << ":" << port << "\n";
         return 1;
     }
-
+    // key_exchange();
     runClient(fd);
     return 0;
 }
