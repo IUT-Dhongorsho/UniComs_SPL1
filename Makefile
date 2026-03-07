@@ -3,9 +3,6 @@ CXXFLAGS = -std=c++17 -Wall -pthread
 
 SERVER_SRC = \
     src/server/server.cpp \
-    src/server/Accept.cpp \
-    src/server/Bind.cpp \
-    src/server/Listen.cpp \
     src/server/Socket.cpp \
     src/server/getClientInfo.cpp \
     src/server/handleMessage.cpp \
@@ -16,8 +13,6 @@ SERVER_SRC = \
     src/server/getChatRoomList.cpp \
     src/utils/utils.cpp \
     src/utils/sha256.cpp \
-    src/utils/hostToNetShort.cpp \
-    src/utils/memorySet.cpp \
     src/db/Catalog.cpp \
     src/db/Indexer.cpp \
     src/db/Table_Engine.cpp \
@@ -26,11 +21,8 @@ SERVER_SRC = \
 CLIENT_SRC = \
     src/client/client.cpp \
     src/client/Connect.cpp \
-    src/client/Socket.cpp \
     src/utils/utils.cpp \
-    src/utils/sha256.cpp \
-    src/utils/hostToNetShort.cpp \
-    src/utils/memorySet.cpp
+    src/utils/sha256.cpp
 
 all: server client
 
