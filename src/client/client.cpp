@@ -58,6 +58,7 @@ static std::vector<uint8_t> base64Decode(const std::string &s)
 
 static std::string pendingFilePath;
 static std::string incomingFilename;
+static std::string incomingSender;
 static size_t incomingFilesize = 0;
 static std::vector<uint8_t> incomingFileData;
 
@@ -143,14 +144,17 @@ static void receiveLoop(int fd, std::atomic<bool> &running)
         {
             if (!incomingFilename.empty())
             {
-                // Save to current directory (avoid path traversal)
-                std::string savePath = std::filesystem::path(incomingFilename).filename().string();
+                // Create a directory named after the sender
+                std::string dir = incomingSender.empty() ? "received" : incomingSender;
+                std::filesystem::create_directories(dir);
+
+                std::string savePath = dir + "/" + std::filesystem::path(incomingFilename).filename().string();
                 std::ofstream out(savePath, std::ios::binary | std::ios::trunc);
                 if (out)
                 {
                     out.write(reinterpret_cast<const char *>(incomingFileData.data()),
                               static_cast<std::streamsize>(incomingFileData.size()));
-                    std::cout << "\r[file] Saved to ./" << savePath << "\n> " << std::flush;
+                    std::cout << "\r[file] Saved to " << savePath << "\n> " << std::flush;
                 }
                 else
                 {
@@ -159,6 +163,7 @@ static void receiveLoop(int fd, std::atomic<bool> &running)
                 incomingFilename.clear();
                 incomingFilesize = 0;
                 incomingFileData.clear();
+                incomingSender.clear();
             }
             continue;
         }
@@ -166,7 +171,9 @@ static void receiveLoop(int fd, std::atomic<bool> &running)
         if (line.rfind("FILE_OFFER ", 0) == 0)
         {
             // "FILE_OFFER <from> <filename> <filesize>"
-            // Display to user and prompt them to accept or reject
+            auto parts = splitMessage(line, ' ', 4);
+            if (parts.size() >= 2)
+                incomingSender = parts[1];
             std::cout << "\r" << line << "\n";
             std::cout << "  → Type 'FILE_ACCEPT' to receive or 'FILE_REJECT' to decline\n> " << std::flush;
             continue;
