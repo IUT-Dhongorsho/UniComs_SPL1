@@ -3,7 +3,9 @@
         {
             "name": "Mac",
             "includePath": [
-                "${workspaceFolder}/**"
+            "${workspaceFolder}/src/**",
+            "/opt/homebrew/include",
+            "/usr/local/include"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/clang",

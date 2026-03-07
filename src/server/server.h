@@ -62,6 +62,8 @@ struct ServerState
     std::map<std::string, std::set<int>> rooms;  // roomName → set of fds currently in room
     Database db;
     std::map<int, PendingFileOffer> pendingFiles;   // receiverFd → offer
+    std::map<int, int> pendingCalls;  // receiverFd → callerFd
+    std::map<int, int> activeCalls;   // fd → peerFd (both directions)
 };
 
 // Socket setup
@@ -93,3 +95,9 @@ void cmdFileAccept(int fd, const std::vector<std::string> &args, ServerState &st
 void cmdFileReject(int fd, const std::vector<std::string> &args, ServerState &state);
 void cmdFileData(int fd, const std::vector<std::string> &args, ServerState &state);
 void cmdFileEnd(int fd, ServerState &state);
+
+void cmdCall(int fd, const std::vector<std::string> &args, ServerState &state);
+void cmdCallAccept(int fd, const std::vector<std::string> &args, ServerState &state);
+void cmdCallPort(int fd, const std::vector<std::string> &args, ServerState &state);
+void cmdCallReject(int fd, const std::vector<std::string> &args, ServerState &state);
+void cmdCallEnd(int fd, const std::vector<std::string> &args, ServerState &state);
