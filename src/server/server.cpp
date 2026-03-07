@@ -3,7 +3,7 @@
 #include <stdexcept>
 #include <unistd.h>
 
-int main()
+int main(int argc, char *argv[])
 {
     ServerState state;
 
@@ -14,11 +14,17 @@ int main()
     state.db.create<ChatRoom>();
     state.db.create<ChatRoomMember>();
 
+    int port = 8080;
+    if (argc >= 2)
+    {
+        port = std::stoi(argv[1]);
+    }
+
     int sockfd = serverSocket();
-    serverBind(sockfd, 8080);
+    serverBind(sockfd, port);
     serverListen(sockfd, 10);
 
-    std::cout << "[server] Listening on port 8080\n";
+    std::cout << "[server] Listening on port " << port << "\n";
 
     while (true)
     {
@@ -38,9 +44,9 @@ int main()
         std::cout << "[server] New connection fd=" << clientFd << "\n";
 
         // Spawn a thread per client
-        std::thread([clientFd, &state]() {
-            handleClient(clientFd, state);
-        }).detach();
+        std::thread([clientFd, &state]()
+                    { handleClient(clientFd, state); })
+            .detach();
     }
 
     close(sockfd);
