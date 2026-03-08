@@ -8,129 +8,208 @@
 #include <unistd.h>
 #include <filesystem>
 #include <fstream>
+#include <termios.h>
 #include "../voice/voice_call.hpp"
 
+// ── Globals ───────────────────────────────────────────────────────────────────
 static VoiceCall voiceCall;
-
-// ── Session store (one entry per peer username) ──────────────────────────────
+static int clientFd = -1;
 std::unordered_map<std::string, CryptoSession> sessionStore;
+
+// ── UI State ──────────────────────────────────────────────────────────────────
+enum class Screen { AUTH, MENU, DM, ROOM };
+
+struct UIState {
+    Screen      screen   = Screen::AUTH;
+    std::string username;
+    std::string target;       // peer (DM) or room name (ROOM)
+    std::string historyPeer;  // set while waiting for HISTORY_DM response
+} ui;
 
 // ── File transfer state ───────────────────────────────────────────────────────
 static std::string pendingFilePath;
 static std::string incomingFilename;
 static std::string incomingSender;
-static size_t incomingFilesize = 0;
+static size_t      incomingFilesize = 0;
 static std::vector<uint8_t> incomingFileData;
 
-// ── Chat mode ─────────────────────────────────────────────────────────────────
-enum class ChatMode
-{
-    NORMAL,
-    DM,
-    ROOM
-};
-static ChatMode chatMode = ChatMode::NORMAL;
-static std::string chatTarget; // peer username (DM) or room name (ROOM)
+// ── Terminal raw mode ─────────────────────────────────────────────────────────
+static struct termios origTermios;
 
-// Forward declaration — receiveLoop needs to call sendLine
-static int clientFd = -1;
+static void enableRawMode() {
+    tcgetattr(STDIN_FILENO, &origTermios);
+    struct termios raw = origTermios;
+    raw.c_lflag &= ~(ECHO | ICANON);
+    raw.c_cc[VMIN]  = 1;
+    raw.c_cc[VTIME] = 0;
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+}
+
+static void disableRawMode() {
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &origTermios);
+}
+
+// ── Prompt ────────────────────────────────────────────────────────────────────
+static std::string prompt() {
+    switch (ui.screen) {
+        case Screen::AUTH: return "> ";
+        case Screen::MENU: return "[" + ui.username + "] > ";
+        case Screen::DM:   return "[" + ui.username + " → " + ui.target + "] > ";
+        case Screen::ROOM: return "[" + ui.username + " @ " + ui.target + "] > ";
+    }
+    return "> ";
+}
+
+// ── Output ────────────────────────────────────────────────────────────────────
+static std::mutex printMtx;
+static std::string inputBuf;
+
+static void printMsg(const std::string &msg) {
+    std::lock_guard<std::mutex> lock(printMtx);
+    std::cout << "\r\033[K" << msg << "\n" << prompt() << inputBuf << std::flush;
+}
+
+// ── Screens ───────────────────────────────────────────────────────────────────
+static void showAuthScreen() {
+    std::cout << "\033[2J\033[H";
+    std::cout << "╔══════════════════════════╗\n";
+    std::cout << "║        ChatApp           ║\n";
+    std::cout << "╚══════════════════════════╝\n\n";
+    std::cout << "  signup <user> <pass>\n";
+    std::cout << "  login  <user> <pass>\n\n";
+    std::cout << "> " << std::flush;
+}
+
+static void showMenu() {
+    std::cout << "\033[2J\033[H";
+    std::cout << "Logged in as " << ui.username << ".\n\n";
+    std::cout << "  dm     <user>          start a DM\n";
+    std::cout << "  join   <room>          join a room\n";
+    std::cout << "  create <room>          create a room\n";
+    std::cout << "  users                  list users\n";
+    std::cout << "  rooms                  list rooms\n";
+    std::cout << "  history dm   <user>    DM history\n";
+    std::cout << "  history room <room>    room history\n";
+    std::cout << "  logout\n\n";
+    std::cout << prompt() << std::flush;
+}
+
+static void showChatHelp() {
+    printMsg("  /send <filepath>   send a file");
+    printMsg("  /call              start a voice call");
+    printMsg("  /history           show chat history");
+    printMsg("  /accept            accept incoming file or call");
+    printMsg("  /reject            reject incoming file or call");
+    printMsg("  /endcall           end active call");
+    printMsg("  /q                 go back to menu");
+}
+
+// ── History decryption ────────────────────────────────────────────────────────
+// Lines arrive as: "[2026-03-08 17:47:16] username: <ciphertext>"
+// Decrypt <ciphertext> using the saved key for historyPeer.
+static std::string tryDecryptHistoryLine(const std::string &line) {
+    if (ui.historyPeer.empty()) return line;
+
+    // Ensure key is loaded
+    if (!sessionStore.count(ui.historyPeer) || !sessionStore[ui.historyPeer].ready) {
+        CryptoSession s;
+        if (!s.load(ui.historyPeer)) return line;
+        sessionStore[ui.historyPeer] = s;
+    }
+
+    auto &session = sessionStore[ui.historyPeer];
+
+    // Content is everything after the last ": "
+    auto sep = line.rfind(": ");
+    if (sep == std::string::npos) return line;
+
+    std::string prefix  = line.substr(0, sep + 2);
+    std::string content = line.substr(sep + 2);
+    if (content.empty()) return line;
+
+    // Only try to decrypt if it looks like base64
+    for (char c : content)
+        if (!isalnum(c) && c != '+' && c != '/' && c != '=')
+            return line;
+
+    try {
+        std::string plain = session.decryptMsg(content);
+        // Sanity check: printable only
+        for (unsigned char c : plain)
+            if (c < 0x20 && c != '\t') return line;
+        return prefix + plain;
+    } catch (...) {
+        return line;
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
-// receiveLoop — runs on a background thread
+// receiveLoop
 // ─────────────────────────────────────────────────────────────────────────────
-static void receiveLoop(int fd, std::atomic<bool> &running)
-{
-    while (running)
-    {
+static void receiveLoop(int fd, std::atomic<bool> &running) {
+    while (running) {
         std::string line = recvLine(fd);
-        if (line.empty())
-        {
-            std::cout << "\n[disconnected from server]\n";
+        if (line.empty()) {
+            printMsg("[disconnected from server]");
             running = false;
             break;
         }
 
-        // ── DH key exchange — initiated by a remote peer ─────────────────────
-        // Server relays: "DH_INIT <from_user> <their_pubkey> <their_nonce_b64>"
-        if (line.rfind("DH_INIT ", 0) == 0)
-        {
+        // ── DH key exchange ───────────────────────────────────────────────────
+        if (line.rfind("DH_INIT ", 0) == 0) {
             auto p = splitMessage(line, ' ', 4);
-            if (p.size() == 4)
-            {
+            if (p.size() == 4) {
                 const std::string &peer = p[1];
                 long long theirPub = std::stoll(p[2]);
-                auto theirNonce = base64Decode(p[3]);
+                auto theirNonce    = base64Decode(p[3]);
 
                 CryptoSession s;
                 s.init();
                 s.deriveKey(theirPub, theirNonce);
+                s.save(peer);
                 sessionStore[peer] = s;
 
-                // Re-derive our pre-XOR nonce so the initiator can apply the same XOR
                 std::vector<uint8_t> ourPreXorNonce(16);
                 for (int i = 0; i < 16; i++)
                     ourPreXorNonce[i] = s.nonce[i] ^ theirNonce[i];
 
                 sendLine(fd, "DH_REPLY " + peer + " " +
-                                 std::to_string(s.pubKey) + " " +
-                                 base64Encode(ourPreXorNonce));
+                             std::to_string(s.pubKey) + " " +
+                             base64Encode(ourPreXorNonce));
 
-                std::cout << "\r[crypto] Secure session established with " << peer << "\n";
+                printMsg("[crypto] Secure session established with " + peer);
             }
-
-            if (chatMode == ChatMode::DM || chatMode == ChatMode::ROOM)
-                std::cout << ">> " << std::flush;
-            else
-                std::cout << "> " << std::flush;
             continue;
         }
 
-        // ── DH key exchange — reply to our own DH_INIT ───────────────────────
-        // Server relays: "DH_REPLY <from_user> <their_pubkey> <their_nonce_b64>"
-        if (line.rfind("DH_REPLY ", 0) == 0)
-        {
+        if (line.rfind("DH_REPLY ", 0) == 0) {
             auto p = splitMessage(line, ' ', 4);
-            if (p.size() == 4)
-            {
+            if (p.size() == 4) {
                 const std::string &peer = p[1];
                 long long theirPub = std::stoll(p[2]);
-                auto theirNonce = base64Decode(p[3]);
+                auto theirNonce    = base64Decode(p[3]);
 
-                if (sessionStore.count(peer))
-                {
+                if (sessionStore.count(peer)) {
                     sessionStore[peer].deriveKey(theirPub, theirNonce);
-                    std::cout << "\r[crypto] Secure session established with " << peer << "\n";
-
-                    chatTarget = peer;
-                    chatMode = ChatMode::DM;
-                    std::cout << "[DM with " << peer
-                              << "] Type messages, '/q' to exit.\n>> " << std::flush;
+                    sessionStore[peer].save(peer);
+                    ui.target = peer;
+                    ui.screen = Screen::DM;
+                    printMsg("[crypto] Secure session established with " + peer);
+                    printMsg("Now chatting with " + peer + ". Type /help for commands.");
                 }
             }
             continue;
         }
 
         // ── File transfer ─────────────────────────────────────────────────────
-        if (line.rfind("FILE_ACCEPTED", 0) == 0)
-        {
-            if (pendingFilePath.empty())
-            {
-                std::cout << "\r[file] No pending file to send\n> " << std::flush;
-                continue;
-            }
+        if (line.rfind("FILE_ACCEPTED", 0) == 0) {
+            if (pendingFilePath.empty()) { printMsg("[file] Nothing to send"); continue; }
             std::ifstream file(pendingFilePath, std::ios::binary);
-            if (!file)
-            {
-                std::cout << "\r[file] Could not open file\n> " << std::flush;
-                pendingFilePath.clear();
-                continue;
-            }
-            std::cout << "\r[file] Sending " << pendingFilePath << "...\n> " << std::flush;
-
+            if (!file) { printMsg("[file] Could not open file"); pendingFilePath.clear(); continue; }
+            printMsg("[file] Sending " + pendingFilePath + "...");
             constexpr size_t CHUNK = 3 * 1024;
             std::vector<uint8_t> buf(CHUNK);
-            while (file.read(reinterpret_cast<char *>(buf.data()), CHUNK) || file.gcount() > 0)
-            {
+            while (file.read(reinterpret_cast<char*>(buf.data()), CHUNK) || file.gcount() > 0) {
                 size_t got = static_cast<size_t>(file.gcount());
                 buf.resize(got);
                 sendLine(fd, "FILE_DATA " + base64Encode(buf));
@@ -138,53 +217,45 @@ static void receiveLoop(int fd, std::atomic<bool> &running)
             }
             sendLine(fd, "FILE_END");
             pendingFilePath.clear();
-            std::cout << "\r[file] Transfer complete\n> " << std::flush;
+            printMsg("[file] Sent.");
             continue;
         }
 
-        if (line.rfind("FILE_REJECTED", 0) == 0)
-        {
+        if (line.rfind("FILE_REJECTED", 0) == 0) {
             pendingFilePath.clear();
-            std::cout << "\r[file] Transfer rejected\n> " << std::flush;
+            printMsg("[file] Transfer rejected.");
             continue;
         }
 
-        if (line.rfind("FILE_INCOMING ", 0) == 0)
-        {
+        if (line.rfind("FILE_INCOMING ", 0) == 0) {
             auto parts = splitMessage(line, ' ', 3);
-            if (parts.size() >= 3)
-            {
+            if (parts.size() >= 3) {
                 incomingFilename = parts[1];
                 incomingFilesize = std::stoull(parts[2]);
                 incomingFileData.clear();
                 incomingFileData.reserve(incomingFilesize);
-                std::cout << "\r[file] Receiving " << incomingFilename
-                          << " (" << incomingFilesize << " bytes)...\n> " << std::flush;
+                printMsg("[file] Receiving " + incomingFilename + "...");
             }
             continue;
         }
 
-        if (line.rfind("FILE_DATA ", 0) == 0)
-        {
+        if (line.rfind("FILE_DATA ", 0) == 0) {
             auto chunk = base64Decode(line.substr(10));
             incomingFileData.insert(incomingFileData.end(), chunk.begin(), chunk.end());
             continue;
         }
 
-        if (line.rfind("FILE_END", 0) == 0)
-        {
-            if (!incomingFilename.empty())
-            {
+        if (line.rfind("FILE_END", 0) == 0) {
+            if (!incomingFilename.empty()) {
                 std::string dir = incomingSender.empty() ? "received" : incomingSender;
                 std::filesystem::create_directories(dir);
                 std::string savePath = dir + "/" +
-                                       std::filesystem::path(incomingFilename).filename().string();
-
+                    std::filesystem::path(incomingFilename).filename().string();
                 std::ofstream out(savePath, std::ios::binary | std::ios::trunc);
                 if (out)
-                    out.write(reinterpret_cast<const char *>(incomingFileData.data()),
+                    out.write(reinterpret_cast<const char*>(incomingFileData.data()),
                               static_cast<std::streamsize>(incomingFileData.size()));
-                std::cout << "\r[file] Saved to " << savePath << "\n> " << std::flush;
+                printMsg("[file] Saved to " + savePath);
                 incomingFilename.clear();
                 incomingFilesize = 0;
                 incomingFileData.clear();
@@ -193,273 +264,292 @@ static void receiveLoop(int fd, std::atomic<bool> &running)
             continue;
         }
 
-        if (line.rfind("FILE_OFFER ", 0) == 0)
-        {
+        if (line.rfind("FILE_OFFER ", 0) == 0) {
             auto parts = splitMessage(line, ' ', 4);
-            if (parts.size() >= 2)
-                incomingSender = parts[1];
-            std::cout << "\r" << line << "\n";
-            std::cout << "  → Type 'FILE_ACCEPT' or 'FILE_REJECT'\n> " << std::flush;
+            if (parts.size() >= 4) incomingSender = parts[1];
+            std::string fname = parts.size() >= 3 ? parts[2] : "?";
+            std::string fsize = parts.size() >= 4 ? parts[3] : "?";
+            printMsg("[!] " + incomingSender + " wants to send you " + fname +
+                     " (" + fsize + " bytes)  →  /accept or /reject");
             continue;
         }
 
         // ── Voice call ────────────────────────────────────────────────────────
-        if (line.rfind("CALL_OFFER ", 0) == 0)
-        {
-            std::cout << "\r[voice] Incoming call from " << line.substr(11)
-                      << "\n  → Type 'CALL_ACCEPT' or 'CALL_REJECT'\n> " << std::flush;
+        if (line.rfind("CALL_OFFER ", 0) == 0) {
+            printMsg("[!] Incoming call from " + line.substr(11) + "  →  /accept or /reject");
             continue;
         }
 
-        if (line.rfind("CALL_ACCEPTED ", 0) == 0)
-        {
+        if (line.rfind("CALL_ACCEPTED ", 0) == 0) {
             auto parts = splitMessage(line, ' ', 3);
-            std::string peerIp = parts[1];
             int peerPort = std::stoi(parts[2]);
-
-            if (peerPort != 0)
-            {
-                // We are the CALLER — start voice and report our UDP port
-                voiceCall.start(peerIp, peerPort);
+            if (peerPort != 0) {
+                voiceCall.start(parts[1], peerPort);
                 sendLine(fd, "CALL_PORT " + std::to_string(voiceCall.udp.localPort));
+            } else {
+                voiceCall.peerIp = parts[1];
             }
-            else
-            {
-                // We are the RECEIVER — already started, just update peer IP
-                voiceCall.peerIp = peerIp;
-            }
-            std::cout << "\r[voice] Call connected\n> " << std::flush;
+            printMsg("[voice] Call connected.");
             continue;
         }
 
-        if (line.rfind("CALL_PEER_PORT ", 0) == 0)
-        {
+        if (line.rfind("CALL_PEER_PORT ", 0) == 0) {
             auto parts = splitMessage(line, ' ', 3);
-            voiceCall.peerIp = parts[1];
+            voiceCall.peerIp   = parts[1];
             voiceCall.peerPort = std::stoi(parts[2]);
-            std::cout << "\r[voice] Peer ready\n> " << std::flush;
             continue;
         }
 
-        if (line == "CALL_REJECTED")
-        {
-            std::cout << "\r[voice] Call rejected\n> " << std::flush;
-            continue;
-        }
-
-        if (line == "CALL_ENDED")
-        {
-            voiceCall.stop();
-            std::cout << "\r[voice] Call ended by peer\n> " << std::flush;
-            continue;
-        }
+        if (line == "CALL_REJECTED") { printMsg("[voice] Call rejected."); continue; }
+        if (line == "CALL_ENDED")    { voiceCall.stop(); printMsg("[voice] Call ended."); continue; }
 
         // ── Incoming DM ───────────────────────────────────────────────────────
-        // Format: "MSG_FROM <sender> <encrypted_content>"
-        if (line.rfind("MSG_FROM ", 0) == 0)
-        {
+        if (line.rfind("MSG_FROM ", 0) == 0) {
             auto p = splitMessage(line, ' ', 3);
-            if (p.size() == 3)
-            {
+            if (p.size() == 3) {
                 const std::string &sender = p[1];
-                if (sessionStore.count(sender) && sessionStore[sender].ready)
-                {
-                    std::string plaintext = sessionStore[sender].decryptMsg(p[2]);
-                    std::cout << "\r[" << sender << "]: " << plaintext << "\n";
-                }
+                std::string text = (sessionStore.count(sender) && sessionStore[sender].ready)
+                    ? sessionStore[sender].decryptMsg(p[2])
+                    : p[2];
+                if (ui.screen != Screen::DM || ui.target != sender)
+                    printMsg("[DM from " + sender + "] " + text);
                 else
-                {
-                    std::cout << "\r[" << sender << " UNENCRYPTED]: " << p[2] << "\n";
-                }
+                    printMsg(sender + ": " + text);
             }
-
-            if (chatMode == ChatMode::DM || chatMode == ChatMode::ROOM)
-                std::cout << ">> " << std::flush;
-            else
-                std::cout << "> " << std::flush;
             continue;
         }
 
         // ── Incoming room message ─────────────────────────────────────────────
-        // Format: "MSG_ROOM <room> <sender> <encrypted_content>"
-        if (line.rfind("MSG_ROOM ", 0) == 0)
-        {
+        if (line.rfind("MSG_ROOM ", 0) == 0 || line.rfind("ROOM_MSG ", 0) == 0) {
             auto p = splitMessage(line, ' ', 4);
-            if (p.size() == 4)
-            {
-                const std::string &room = p[1];
+            if (p.size() == 4) {
+                const std::string &room   = p[1];
                 const std::string &sender = p[2];
-                if (sessionStore.count(room) && sessionStore[room].ready)
-                {
-                    std::string plaintext = sessionStore[room].decryptMsg(p[3]);
-                    std::cout << "\r[" << sender << " @ " << room << "]: "
-                              << plaintext << "\n";
-                }
+                std::string text = (sessionStore.count(room) && sessionStore[room].ready)
+                    ? sessionStore[room].decryptMsg(p[3])
+                    : p[3];
+                if (ui.screen != Screen::ROOM || ui.target != room)
+                    printMsg("[" + room + "] " + sender + ": " + text);
                 else
-                {
-                    std::cout << "\r[" << sender << " @ " << room
-                              << " UNENCRYPTED]: " << p[3] << "\n";
-                }
+                    printMsg(sender + ": " + text);
             }
-
-            if (chatMode == ChatMode::DM || chatMode == ChatMode::ROOM)
-                std::cout << ">> " << std::flush;
-            else
-                std::cout << "> " << std::flush;
             continue;
         }
 
-        // ── All other server messages (INFO, OK, ERR, etc.) ───────────────────
-        std::cout << "\r" << line << "\n";
-        if (chatMode == ChatMode::DM || chatMode == ChatMode::ROOM)
-            std::cout << ">> " << std::flush;
-        else
-            std::cout << "> " << std::flush;
+        // ── Server OK / ERR / INFO ────────────────────────────────────────────
+        if (line.rfind("OK Logged in as ", 0) == 0) {
+            ui.username = line.substr(16);
+            ui.screen   = Screen::MENU;
+            disableRawMode();
+            showMenu();
+            enableRawMode();
+            continue;
+        }
+
+        if (line.rfind("OK Logged out", 0) == 0) {
+            ui.username.clear();
+            ui.target.clear();
+            ui.historyPeer.clear();
+            ui.screen = Screen::AUTH;
+            disableRawMode();
+            showAuthScreen();
+            enableRawMode();
+            continue;
+        }
+
+        if (line.rfind("OK Joined ", 0) == 0) continue;
+
+        if (line.rfind("INFO ", 0) == 0) {
+            std::string content = line.substr(5);
+            // History lines start with '[' (timestamp)
+            if (!ui.historyPeer.empty() && !content.empty() && content[0] == '[')
+                content = tryDecryptHistoryLine(content);
+            else
+                ui.historyPeer.clear(); // any non-history INFO ends history mode
+            printMsg(content);
+            continue;
+        }
+
+        if (line.rfind("ERR ", 0) == 0) { printMsg("[!] " + line.substr(4)); continue; }
+        if (line.rfind("OK ",  0) == 0) { printMsg(line.substr(3));           continue; }
+        if (line != "OK")               { printMsg(line);                     continue; }
     }
 }
 
+// ── readLine ──────────────────────────────────────────────────────────────────
+static std::string readLine() {
+    inputBuf.clear();
+    char c;
+    while (read(STDIN_FILENO, &c, 1) == 1) {
+        if (c == '\n' || c == '\r') {
+            std::cout << "\n" << std::flush;
+            std::string result = inputBuf;
+            inputBuf.clear();
+            return result;
+        }
+        if (c == 127 || c == '\b') {
+            if (!inputBuf.empty()) {
+                inputBuf.pop_back();
+                std::cout << "\b \b" << std::flush;
+            }
+            continue;
+        }
+        if (c == 3) { disableRawMode(); std::cout << "\n"; exit(0); }
+        inputBuf += c;
+        std::cout << c << std::flush;
+    }
+    return "";
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// runClient — main input loop on the main thread
+// runClient
 // ─────────────────────────────────────────────────────────────────────────────
-void runClient(int fd)
-{
+void runClient(int fd) {
     clientFd = fd;
+    enableRawMode();
+    showAuthScreen();
 
     std::atomic<bool> running{true};
     std::thread receiver(receiveLoop, fd, std::ref(running));
-    std::cout << "Connected. Type commands or 'quit' to exit.\n> " << std::flush;
 
-    std::string line;
-    while (running && std::getline(std::cin, line))
-    {
-        if (line == "quit" || line == "exit")
-            break;
+    while (running) {
+        std::string line = readLine();
+        if (line.empty()) continue;
 
-        // ── DM / ROOM sub-environment ─────────────────────────────────────────
-        if (chatMode == ChatMode::DM || chatMode == ChatMode::ROOM)
-        {
-            if (line == "/q")
-            {
-                if (chatMode == ChatMode::ROOM)
-                {
-                    sendLine(fd, "LEAVE " + chatTarget);
-                    std::cout << "[left room " << chatTarget << "]\n> " << std::flush;
+        // ── AUTH ──────────────────────────────────────────────────────────────
+        if (ui.screen == Screen::AUTH) {
+            auto parts = splitMessage(line, ' ', 3);
+            if (parts.empty()) continue;
+            std::string cmd = parts[0];
+            if ((cmd == "login" || cmd == "signup") && parts.size() == 3)
+                sendLine(fd, (cmd == "login" ? "LOGIN " : "SIGNUP ") + parts[1] + " " + parts[2]);
+            else
+                printMsg("Usage: login <user> <pass>  or  signup <user> <pass>");
+            continue;
+        }
+
+        // ── MENU ──────────────────────────────────────────────────────────────
+        if (ui.screen == Screen::MENU) {
+            auto parts = splitMessage(line, ' ', 3);
+            if (parts.empty()) continue;
+            std::string cmd = parts[0];
+
+            if (cmd == "dm" && parts.size() >= 2) {
+                const std::string &peer = parts[1];
+                // Load saved key if available — skip DH if we already have one
+                if (!sessionStore.count(peer) || !sessionStore[peer].ready) {
+                    CryptoSession s;
+                    if (s.load(peer)) sessionStore[peer] = s;
                 }
-                else
-                {
-                    std::cout << "[left DM with " << chatTarget << "]\n> " << std::flush;
+                if (sessionStore.count(peer) && sessionStore[peer].ready) {
+                    ui.target = peer;
+                    ui.screen = Screen::DM;
+                    disableRawMode();
+                    std::cout << "\033[2J\033[H";
+                    std::cout << "Chatting with " << peer << ". Type /help for commands.\n\n";
+                    std::cout << prompt() << std::flush;
+                    enableRawMode();
+                } else {
+                    CryptoSession s;
+                    s.init();
+                    sessionStore[peer] = s;
+                    sendLine(fd, "DH_INIT " + peer + " " +
+                                 std::to_string(s.pubKey) + " " + base64Encode(s.nonce));
+                    printMsg("Initiating secure session with " + peer + "...");
                 }
-                chatMode = ChatMode::NORMAL;
-                chatTarget.clear();
+            }
+            else if (cmd == "join" && parts.size() >= 2) {
+                ui.target = parts[1];
+                ui.screen = Screen::ROOM;
+                sendLine(fd, "JOIN " + parts[1]);
+                disableRawMode();
+                std::cout << "\033[2J\033[H";
+                std::cout << "Joined " << parts[1] << ". Type /help for commands.\n\n";
+                std::cout << prompt() << std::flush;
+                enableRawMode();
+            }
+            else if (cmd == "create" && parts.size() >= 2) sendLine(fd, "CREATE_ROOM " + parts[1]);
+            else if (cmd == "users")                        sendLine(fd, "LIST_USERS");
+            else if (cmd == "rooms")                        sendLine(fd, "LIST_ROOMS");
+            else if (cmd == "history" && parts.size() >= 3) {
+                if (parts[1] == "dm") {
+                    ui.historyPeer = parts[2];
+                    sendLine(fd, "HISTORY_DM " + parts[2]);
+                } else if (parts[1] == "room") {
+                    sendLine(fd, "HISTORY_ROOM " + parts[2]);
+                }
+            }
+            else if (cmd == "logout")                { sendLine(fd, "LOGOUT"); }
+            else if (cmd == "quit" || cmd == "exit") { break; }
+            else printMsg("Unknown command. Try: dm, join, create, users, rooms, history, logout");
+            continue;
+        }
+
+        // ── DM / ROOM ─────────────────────────────────────────────────────────
+        if (ui.screen == Screen::DM || ui.screen == Screen::ROOM) {
+            if (line == "/q") {
+                if (ui.screen == Screen::ROOM) sendLine(fd, "LEAVE " + ui.target);
+                ui.screen = Screen::MENU;
+                ui.target.clear();
+                disableRawMode();
+                showMenu();
+                enableRawMode();
                 continue;
             }
 
-            if (sessionStore.count(chatTarget) && sessionStore[chatTarget].ready)
-            {
-                std::string encrypted = sessionStore[chatTarget].encryptMsg(line);
-                if (chatMode == ChatMode::DM)
-                    sendLine(fd, "DM " + chatTarget + " " + encrypted);
-                else
-                    sendLine(fd, "MSG " + chatTarget + " " + encrypted);
-            }
-            else
-            {
-                std::cerr << "[crypto] No session ready for " << chatTarget
-                          << " — message not sent\n";
-            }
+            if (line == "/help")    { showChatHelp(); continue; }
+            if (line == "/call")    { sendLine(fd, "CALL " + ui.target); continue; }
+            if (line == "/endcall") { voiceCall.stop(); sendLine(fd, "CALL_END"); continue; }
 
-            std::cout << ">> " << std::flush;
-            continue;
-        }
-
-        // ── Normal mode ───────────────────────────────────────────────────────
-        auto parts = splitMessage(line, ' ', 3);
-        if (parts.empty())
-            continue;
-        const std::string &cmd = parts[0];
-
-        if (cmd == "DM" && parts.size() >= 2)
-        {
-            const std::string &peer = parts[1];
-
-            if (sessionStore.count(peer) && sessionStore[peer].ready)
-            {
-                chatTarget = peer;
-                chatMode = ChatMode::DM;
-                std::cout << "[DM with " << peer
-                          << "] Type messages, '/q' to exit.\n>> " << std::flush;
-            }
-            else
-            {
-                CryptoSession s;
-                s.init();
-                sessionStore[peer] = s;
-
-                sendLine(fd, "DH_INIT " + peer + " " +
-                                 std::to_string(s.pubKey) + " " +
-                                 base64Encode(s.nonce));
-
-                std::cout << "[crypto] Key exchange initiated with " << peer
-                          << ", waiting for reply...\n> " << std::flush;
-            }
-            continue;
-        }
-
-        if (cmd == "JOIN" && parts.size() >= 2)
-        {
-            const std::string &room = parts[1];
-            chatTarget = room;
-            chatMode = ChatMode::ROOM;
-            sendLine(fd, "JOIN " + room);
-            std::cout << "[Room " << room
-                      << "] Type messages, '/q' to exit.\n>> " << std::flush;
-            continue;
-        }
-
-        if (cmd == "FILE_SEND" && parts.size() >= 3)
-        {
-            const std::string &username = parts[1];
-            const std::string &filepath = parts[2];
-            if (!std::filesystem::exists(filepath))
-            {
-                std::cerr << "File not found: " << filepath << "\n> " << std::flush;
+            if (line == "/history") {
+                if (ui.screen == Screen::DM) {
+                    ui.historyPeer = ui.target;
+                    sendLine(fd, "HISTORY_DM " + ui.target);
+                } else {
+                    sendLine(fd, "HISTORY_ROOM " + ui.target);
+                }
                 continue;
             }
-            size_t filesize = std::filesystem::file_size(filepath);
-            pendingFilePath = filepath;
-            sendLine(fd, "FILE_SEND " + username + " " +
-                             std::filesystem::path(filepath).filename().string() + " " +
-                             std::to_string(filesize));
-        }
-        else if (cmd == "FILE_ACCEPT")
-        {
-            sendLine(fd, "FILE_ACCEPT");
-        }
-        else if (cmd == "FILE_REJECT")
-        {
-            sendLine(fd, "FILE_REJECT");
-        }
-        else if (cmd == "CALL_ACCEPT")
-        {
-            voiceCall.start("", 0);
-            sendLine(fd, "CALL_ACCEPT " + std::to_string(voiceCall.udp.localPort));
-        }
-        else if (cmd == "CALL_END")
-        {
-            voiceCall.stop();
-            sendLine(fd, "CALL_END");
-        }
-        else
-        {
-            // SIGNUP, LOGIN, LOGOUT, LIST_USERS, HISTORY_DM, etc.
-            // Protocol commands — sent plaintext intentionally.
-            sendLine(fd, line);
-        }
 
-        std::cout << "> " << std::flush;
+            if (line.rfind("/send ", 0) == 0) {
+                std::string path = line.substr(6);
+                if (!std::filesystem::exists(path))
+                    printMsg("[!] File not found: " + path);
+                else {
+                    size_t sz = std::filesystem::file_size(path);
+                    pendingFilePath = path;
+                    sendLine(fd, "FILE_SEND " + ui.target + " " +
+                                 std::filesystem::path(path).filename().string() + " " +
+                                 std::to_string(sz));
+                }
+                continue;
+            }
+
+            if (line == "/accept") {
+                if (!incomingSender.empty()) sendLine(fd, "FILE_ACCEPT");
+                else { voiceCall.start("", 0); sendLine(fd, "CALL_ACCEPT " + std::to_string(voiceCall.udp.localPort)); }
+                continue;
+            }
+
+            if (line == "/reject") {
+                if (!incomingSender.empty()) sendLine(fd, "FILE_REJECT");
+                else                         sendLine(fd, "CALL_REJECT");
+                continue;
+            }
+
+            // Send message
+            std::string toSend = (sessionStore.count(ui.target) && sessionStore[ui.target].ready)
+                ? sessionStore[ui.target].encryptMsg(line)
+                : line;
+
+            sendLine(fd, (ui.screen == Screen::DM ? "DM " : "MSG ") + ui.target + " " + toSend);
+            printMsg("you: " + line);
+            continue;
+        }
     }
 
     running = false;
+    disableRawMode();
     shutdown(fd, SHUT_RDWR);
     close(fd);
     receiver.join();
@@ -468,24 +558,18 @@ void runClient(int fd)
 // ─────────────────────────────────────────────────────────────────────────────
 // main
 // ─────────────────────────────────────────────────────────────────────────────
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
     std::string host = "127.0.0.1";
     int port = 8080;
-
-    if (argc >= 2)
-        host = argv[1];
-    if (argc >= 3)
-        port = std::stoi(argv[2]);
+    if (argc >= 2) host = argv[1];
+    if (argc >= 3) port = std::stoi(argv[2]);
 
     int fd = clientConnect(host, port);
-    if (fd < 0)
-    {
+    if (fd < 0) {
         std::cerr << "Failed to connect to " << host << ":" << port << "\n";
         return 1;
     }
 
-    // No global handshake — keys are exchanged lazily on first DM with each peer
     runClient(fd);
     return 0;
 }
