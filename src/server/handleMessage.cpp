@@ -3,8 +3,6 @@
 
 void handleClient(int fd, ServerState &state)
 {
-    sendLine(fd, "INFO Welcome to ChatApp. Commands: SIGNUP LOGIN LOGOUT DM JOIN LEAVE MSG CREATE_ROOM LIST_ROOMS LIST_USERS LIST_MEMBERS SEND_FILE HISTORY_DM HISTORY_ROOM CALL");
-
     while (true)
     {
         std::string line = recvLine(fd);
