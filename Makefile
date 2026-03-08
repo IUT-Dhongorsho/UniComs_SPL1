@@ -35,7 +35,10 @@ CLIENT_SRC = \
     src/client/Connect.cpp \
     src/voice/voice_call.cpp \
     src/utils/utils.cpp \
-    src/utils/sha256.cpp
+    src/utils/sha256.cpp \
+    src/utils/crypto/aes.cpp \
+    src/utils/crypto/diffie_hellman.cpp \
+    src/utils/crypto/random.cpp
 
 all: server client
 
