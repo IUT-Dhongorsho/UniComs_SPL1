@@ -20,6 +20,8 @@
 //   SIGNUP <username> <password>
 //   LOGIN <username> <password>
 //   LOGOUT
+//   DH_INIT <username> <pubkey> <nonce_b64>
+//   DH_REPLY <username> <pubkey> <nonce_b64>
 //   DM <username> <message...>
 //   JOIN <roomName>
 //   LEAVE <roomName>
@@ -49,26 +51,26 @@ struct ClientSession
 
 struct PendingFileOffer
 {
-    int      senderFd;
+    int senderFd;
     std::string filename;
-    size_t   filesize;
+    size_t filesize;
 };
 
 // Global server state (shared across threads)
 struct ServerState
 {
     std::mutex mtx;
-    std::map<int, ClientSession> sessions;       // fd → session
-    std::map<std::string, std::set<int>> rooms;  // roomName → set of fds currently in room
+    std::map<int, ClientSession> sessions;      // fd → session
+    std::map<std::string, std::set<int>> rooms; // roomName → set of fds currently in room
     Database db;
-    std::map<int, PendingFileOffer> pendingFiles;   // receiverFd → offer
+    std::map<int, PendingFileOffer> pendingFiles; // receiverFd → offer
 };
 
 // Socket setup
-int  serverSocket();
+int serverSocket();
 void serverBind(int sockfd, int port);
 void serverListen(int sockfd, int backlog);
-int  serverAccept(int sockfd);
+int serverAccept(int sockfd);
 
 // Client handler (runs in its own thread)
 void handleClient(int clientFd, ServerState &state);
@@ -93,3 +95,6 @@ void cmdFileAccept(int fd, const std::vector<std::string> &args, ServerState &st
 void cmdFileReject(int fd, const std::vector<std::string> &args, ServerState &state);
 void cmdFileData(int fd, const std::vector<std::string> &args, ServerState &state);
 void cmdFileEnd(int fd, ServerState &state);
+
+void cmdInitDH(int fd, const std::vector<std::string> &args, ServerState &state);
+void cmdReplyDH(int fd, const std::vector<std::string> &args, ServerState &state);

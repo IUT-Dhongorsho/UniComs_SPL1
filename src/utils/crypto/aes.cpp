@@ -67,7 +67,6 @@ void AES256::shiftRows(uint8_t s[4][4])
     s[3][3] = s[3][2];
     s[3][2] = s[3][1];
     s[3][1] = s[3][0];
-    AES256
     s[3][0] = temp;
 }
 
@@ -184,6 +183,12 @@ void AES256::keyExpansion()
             temp[3] = sbox[k];
 
             rcon = xtime(rcon);
+        }
+        else if (bytesGenerated % 32 == 16)
+        {
+            // AES-256 extra SubBytes pass at the 16-byte mark
+            for (int i = 0; i < 4; i++)
+                temp[i] = sbox[temp[i]];
         }
 
         for (int i = 0; i < 4; i++)

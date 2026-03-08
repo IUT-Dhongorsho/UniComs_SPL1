@@ -22,7 +22,10 @@ CLIENT_SRC = \
     src/client/client.cpp \
     src/client/Connect.cpp \
     src/utils/utils.cpp \
-    src/utils/sha256.cpp
+    src/utils/sha256.cpp \
+    src/utils/crypto/aes.cpp \
+    src/utils/crypto/diffie_hellman.cpp \
+    src/utils/crypto/random.cpp
 
 all: server client
 

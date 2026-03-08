@@ -1,4 +1,6 @@
 #include "client.h"
+#include "base64.h"
+#include "session.h"
 #include <iostream>
 #include <thread>
 #include <atomic>
@@ -8,61 +10,32 @@
 #include <fstream>
 #include <sstream>
 
-// base64 encoding table
-static const std::string B64_CHARS =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+// ── Session store (one entry per peer username) ──────────────────────────────
+std::unordered_map<std::string, CryptoSession> sessionStore;
 
-static std::string base64Encode(const std::vector<uint8_t> &data)
-{
-    std::string out;
-    int val = 0, valb = -6;
-    for (uint8_t c : data)
-    {
-        val = (val << 8) + c;
-        valb += 8;
-        while (valb >= 0)
-        {
-            out.push_back(B64_CHARS[(val >> valb) & 0x3F]);
-            valb -= 6;
-        }
-    }
-    if (valb > -6)
-        out.push_back(B64_CHARS[((val << 8) >> (valb + 8)) & 0x3F]);
-    while (out.size() % 4)
-        out.push_back('=');
-    return out;
-}
-
-static std::vector<uint8_t> base64Decode(const std::string &s)
-{
-    std::vector<int> T(256, -1);
-    for (int i = 0; i < 64; i++)
-        T[(uint8_t)B64_CHARS[i]] = i;
-
-    std::vector<uint8_t> out;
-    int val = 0, valb = -8;
-    for (uint8_t c : s)
-    {
-        if (T[c] == -1)
-            break;
-        val = (val << 6) + T[c];
-        valb += 6;
-        if (valb >= 0)
-        {
-            out.push_back((val >> valb) & 0xFF);
-            valb -= 8;
-        }
-    }
-    return out;
-}
-
+// ── File transfer state ───────────────────────────────────────────────────────
 static std::string pendingFilePath;
 static std::string incomingFilename;
 static std::string incomingSender;
 static size_t incomingFilesize = 0;
 static std::vector<uint8_t> incomingFileData;
 
-// Background thread: prints messages received from server
+// ── Chat mode ─────────────────────────────────────────────────────────────────
+enum class ChatMode
+{
+    NORMAL,
+    DM,
+    ROOM
+};
+static ChatMode chatMode = ChatMode::NORMAL;
+static std::string chatTarget; // peer username (DM) or room name (ROOM)
+
+// Forward declaration — receiveLoop needs to call sendLine
+static int clientFd = -1;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// receiveLoop — runs on a background thread
+// ─────────────────────────────────────────────────────────────────────────────
 static void receiveLoop(int fd, std::atomic<bool> &running)
 {
     while (running)
@@ -75,10 +48,80 @@ static void receiveLoop(int fd, std::atomic<bool> &running)
             break;
         }
 
-        // Handle file transfer protocol messages silently
+        // ── DH key exchange — initiated by a remote peer ─────────────────────
+        // Server relays: "DH_INIT <from_user> <their_pubkey> <their_nonce_b64>"
+        if (line.rfind("DH_INIT ", 0) == 0)
+        {
+            auto p = splitMessage(line, ' ', 4);
+            if (p.size() == 4)
+            {
+                const std::string &peer = p[1];
+                long long theirPub = std::stoll(p[2]);
+                auto theirNonce = base64Decode(p[3]);
+
+                // Create a fresh session for this peer
+                CryptoSession s;
+                s.init();
+                s.deriveKey(theirPub, theirNonce);
+                sessionStore[peer] = s;
+
+                // Reply with our pubkey and our pre-XOR nonce so the initiator
+                // can complete their own deriveKey() call.
+                // We send the nonce BEFORE the XOR was applied, so the initiator
+                // can do the same XOR on their side.
+                // NOTE: s.nonce is already XOR'd at this point, so we re-derive
+                // the pre-XOR nonce by XOR-ing back with theirNonce.
+                std::vector<uint8_t> ourPreXorNonce(16);
+                for (int i = 0; i < 16; i++)
+                    ourPreXorNonce[i] = s.nonce[i] ^ theirNonce[i]; // undo XOR
+
+                sendLine(fd, "DH_REPLY " + peer + " " +
+                                 std::to_string(s.pubKey) + " " +
+                                 base64Encode(ourPreXorNonce));
+
+                std::cout << "\r[crypto] Secure session established with "
+                          << peer << "\n";
+            }
+
+            // Restore prompt
+            if (chatMode == ChatMode::DM || chatMode == ChatMode::ROOM)
+                std::cout << ">> " << std::flush;
+            else
+                std::cout << "> " << std::flush;
+            continue;
+        }
+
+        // ── DH key exchange — reply to our own DH_INIT ───────────────────────
+        // Server relays: "DH_REPLY <from_user> <their_pubkey> <their_nonce_b64>"
+        if (line.rfind("DH_REPLY ", 0) == 0)
+        {
+            auto p = splitMessage(line, ' ', 4);
+            if (p.size() == 4)
+            {
+                const std::string &peer = p[1];
+                long long theirPub = std::stoll(p[2]);
+                auto theirNonce = base64Decode(p[3]);
+
+                // Complete key derivation for the session we started
+                if (sessionStore.count(peer))
+                {
+                    sessionStore[peer].deriveKey(theirPub, theirNonce);
+                    std::cout << "\r[crypto] Secure session established with "
+                              << peer << "\n";
+
+                    // We can now enter DM mode
+                    chatTarget = peer;
+                    chatMode = ChatMode::DM;
+                    std::cout << "[DM with " << peer
+                              << "] Type messages, '/q' to exit.\n>> " << std::flush;
+                }
+            }
+            continue;
+        }
+
+        // ── File transfer ─────────────────────────────────────────────────────
         if (line.rfind("FILE_ACCEPTED", 0) == 0)
         {
-            // Server told us the receiver accepted — send the file
             if (pendingFilePath.empty())
             {
                 std::cout << "\r[file] No pending file to send\n> " << std::flush;
@@ -95,7 +138,7 @@ static void receiveLoop(int fd, std::atomic<bool> &running)
 
             std::cout << "\r[file] Sending " << pendingFilePath << "...\n> " << std::flush;
 
-            constexpr size_t CHUNK = 3 * 1024; // must be multiple of 3 for clean base64
+            constexpr size_t CHUNK = 3 * 1024;
             std::vector<uint8_t> buf(CHUNK);
             while (file.read(reinterpret_cast<char *>(buf.data()), CHUNK) || file.gcount() > 0)
             {
@@ -119,7 +162,6 @@ static void receiveLoop(int fd, std::atomic<bool> &running)
 
         if (line.rfind("FILE_INCOMING ", 0) == 0)
         {
-            // "FILE_INCOMING <filename> <filesize>"
             auto parts = splitMessage(line, ' ', 3);
             if (parts.size() >= 3)
             {
@@ -144,11 +186,11 @@ static void receiveLoop(int fd, std::atomic<bool> &running)
         {
             if (!incomingFilename.empty())
             {
-                // Create a directory named after the sender
                 std::string dir = incomingSender.empty() ? "received" : incomingSender;
                 std::filesystem::create_directories(dir);
+                std::string savePath = dir + "/" +
+                                       std::filesystem::path(incomingFilename).filename().string();
 
-                std::string savePath = dir + "/" + std::filesystem::path(incomingFilename).filename().string();
                 std::ofstream out(savePath, std::ios::binary | std::ios::trunc);
                 if (out)
                 {
@@ -170,24 +212,90 @@ static void receiveLoop(int fd, std::atomic<bool> &running)
 
         if (line.rfind("FILE_OFFER ", 0) == 0)
         {
-            // "FILE_OFFER <from> <filename> <filesize>"
             auto parts = splitMessage(line, ' ', 4);
             if (parts.size() >= 2)
                 incomingSender = parts[1];
             std::cout << "\r" << line << "\n";
-            std::cout << "  → Type 'FILE_ACCEPT' to receive or 'FILE_REJECT' to decline\n> " << std::flush;
+            std::cout << "  → Type 'FILE_ACCEPT' to receive or 'FILE_REJECT' to decline\n> "
+                      << std::flush;
             continue;
         }
 
-        std::cout << "\r" << line << "\n> " << std::flush;
+        // ── Incoming DM ───────────────────────────────────────────────────────
+        // Format: "MSG_FROM <sender> <encrypted_content>"
+        if (line.rfind("MSG_FROM ", 0) == 0)
+        {
+            auto p = splitMessage(line, ' ', 3);
+            if (p.size() == 3)
+            {
+                const std::string &sender = p[1];
+                if (sessionStore.count(sender) && sessionStore[sender].ready)
+                {
+                    std::string plaintext = sessionStore[sender].decryptMsg(p[2]);
+                    std::cout << "\r[" << sender << "]: " << plaintext << "\n";
+                }
+                else
+                {
+                    // No session yet — show raw (shouldn't happen in normal flow)
+                    std::cout << "\r[" << sender << " UNENCRYPTED]: " << p[2] << "\n";
+                }
+            }
+
+            if (chatMode == ChatMode::DM || chatMode == ChatMode::ROOM)
+                std::cout << ">> " << std::flush;
+            else
+                std::cout << "> " << std::flush;
+            continue;
+        }
+
+        // ── Incoming room message ─────────────────────────────────────────────
+        // Format: "MSG_ROOM <room> <sender> <encrypted_content>"
+        if (line.rfind("MSG_ROOM ", 0) == 0)
+        {
+            auto p = splitMessage(line, ' ', 4);
+            if (p.size() == 4)
+            {
+                const std::string &room = p[1];
+                const std::string &sender = p[2];
+                // Room messages use a session keyed by room name
+                if (sessionStore.count(room) && sessionStore[room].ready)
+                {
+                    std::string plaintext = sessionStore[room].decryptMsg(p[3]);
+                    std::cout << "\r[" << sender << " @ " << room << "]: "
+                              << plaintext << "\n";
+                }
+                else
+                {
+                    std::cout << "\r[" << sender << " @ " << room
+                              << " UNENCRYPTED]: " << p[3] << "\n";
+                }
+            }
+
+            if (chatMode == ChatMode::DM || chatMode == ChatMode::ROOM)
+                std::cout << ">> " << std::flush;
+            else
+                std::cout << "> " << std::flush;
+            continue;
+        }
+
+        // ── All other server messages (INFO, OK, ERR, etc.) ───────────────────
+        std::cout << "\r" << line << "\n";
+        if (chatMode == ChatMode::DM || chatMode == ChatMode::ROOM)
+            std::cout << ">> " << std::flush;
+        else
+            std::cout << "> " << std::flush;
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// runClient — main input loop on the main thread
+// ─────────────────────────────────────────────────────────────────────────────
 void runClient(int fd)
 {
+    clientFd = fd;
+
     std::atomic<bool> running{true};
     std::thread receiver(receiveLoop, fd, std::ref(running));
-
     std::cout << "Connected. Type commands or 'quit' to exit.\n> " << std::flush;
 
     std::string line;
@@ -196,12 +304,100 @@ void runClient(int fd)
         if (line == "quit" || line == "exit")
             break;
 
+        // ── DM / ROOM sub-environment ─────────────────────────────────────────
+        if (chatMode == ChatMode::DM || chatMode == ChatMode::ROOM)
+        {
+            if (line == "/q")
+            {
+                if (chatMode == ChatMode::ROOM)
+                {
+                    sendLine(fd, "LEAVE " + chatTarget);
+                    std::cout << "[left room " << chatTarget << "]\n> " << std::flush;
+                }
+                else
+                {
+                    std::cout << "[left DM with " << chatTarget << "]\n> " << std::flush;
+                }
+                chatMode = ChatMode::NORMAL;
+                chatTarget.clear();
+                continue;
+            }
+
+            // Encrypt with the session for this target
+            if (sessionStore.count(chatTarget) && sessionStore[chatTarget].ready)
+            {
+                std::string encrypted = sessionStore[chatTarget].encryptMsg(line);
+                if (chatMode == ChatMode::DM)
+                    sendLine(fd, "DM " + chatTarget + " " + encrypted);
+                else
+                    sendLine(fd, "MSG " + chatTarget + " " + encrypted);
+            }
+            else
+            {
+                std::cerr << "[crypto] No session ready for " << chatTarget
+                          << " — message not sent\n";
+            }
+
+            std::cout << ">> " << std::flush;
+            continue;
+        }
+
+        // ── Normal mode ───────────────────────────────────────────────────────
         auto parts = splitMessage(line, ' ', 3);
         if (parts.empty())
             continue;
+        const std::string &cmd = parts[0];
 
-        std::string cmd = parts[0];
+        // DM <user> — lazy key exchange, then enter DM mode
+        if (cmd == "DM" && parts.size() >= 2)
+        {
+            const std::string &peer = parts[1];
 
+            if (sessionStore.count(peer) && sessionStore[peer].ready)
+            {
+                // Session already established — jump straight in
+                chatTarget = peer;
+                chatMode = ChatMode::DM;
+                std::cout << "[DM with " << peer
+                          << "] Type messages, '/q' to exit.\n>> " << std::flush;
+            }
+            else
+            {
+                // No session yet — initiate DH key exchange.
+                // DM mode will be entered automatically once DH_REPLY is received
+                // in receiveLoop (see DH_REPLY handler above).
+                CryptoSession s;
+                s.init();
+                sessionStore[peer] = s; // store with ready=false until DH_REPLY
+
+                sendLine(fd, "DH_INIT " + peer + " " +
+                                 std::to_string(s.pubKey) + " " +
+                                 base64Encode(s.nonce));
+
+                std::cout << "[crypto] Key exchange initiated with " << peer
+                          << ", waiting for reply...\n> " << std::flush;
+            }
+            continue;
+        }
+
+        // JOIN <room> — enter room mode (room messages also use sessionStore)
+        if (cmd == "JOIN" && parts.size() >= 2)
+        {
+            const std::string &room = parts[1];
+            chatTarget = room;
+            chatMode = ChatMode::ROOM;
+            sendLine(fd, "JOIN " + room);
+            std::cout << "[Room " << room
+                      << "] Type messages, '/q' to exit.\n>> " << std::flush;
+
+            // Note: room encryption requires a shared room key — for now messages
+            // are sent as-is if no session exists for the room name.
+            // A full room key exchange would follow a similar DH_INIT/REPLY pattern
+            // brokered through the server to all room members.
+            continue;
+        }
+
+        // FILE_SEND <user> <filepath>
         if (cmd == "FILE_SEND" && parts.size() >= 3)
         {
             const std::string &username = parts[1];
@@ -212,11 +408,8 @@ void runClient(int fd)
                 std::cerr << "File not found: " << filepath << "\n> " << std::flush;
                 continue;
             }
-
-            // Auto-calculate filesize — user does not supply it
             size_t filesize = std::filesystem::file_size(filepath);
             pendingFilePath = filepath;
-
             sendLine(fd, "FILE_SEND " + username + " " +
                              std::filesystem::path(filepath).filename().string() + " " +
                              std::to_string(filesize));
@@ -231,7 +424,9 @@ void runClient(int fd)
         }
         else
         {
-            sendLine(fd, line); // all other commands pass through as-is
+            // SIGNUP, LOGIN, LOGOUT, LIST_USERS, HISTORY_DM, etc.
+            // These are protocol commands — sent plaintext intentionally.
+            sendLine(fd, line);
         }
 
         std::cout << "> " << std::flush;
@@ -243,6 +438,9 @@ void runClient(int fd)
     receiver.join();
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// main#include "client.h"
+// ─────────────────────────────────────────────────────────────────────────────
 int main(int argc, char *argv[])
 {
     std::string host = "127.0.0.1";
@@ -259,7 +457,8 @@ int main(int argc, char *argv[])
         std::cerr << "Failed to connect to " << host << ":" << port << "\n";
         return 1;
     }
-    // key_exchange();
+
+    // No global handshake — keys are exchanged lazily on first DM with each peer
     runClient(fd);
     return 0;
 }
