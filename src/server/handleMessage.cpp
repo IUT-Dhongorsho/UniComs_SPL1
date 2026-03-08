@@ -65,7 +65,7 @@ void handleClient(int fd, ServerState &state)
         else if (cmd == "HISTORY_ROOM")
             cmdHistoryRoom(fd, parts, state);
         else if (cmd == "FILE_SEND")
-            cmdFileSend(fd, parts, state);
+            cmdFileSend(fd, splitMessage(line, ' ', 4), state);
         else if (cmd == "FILE_ACCEPT")
             cmdFileAccept(fd, parts, state);
         else if (cmd == "FILE_REJECT")
