@@ -74,9 +74,19 @@ void cmdLogin(int fd, const std::vector<std::string> &args, ServerState &state)
     sendLine(fd, "OK Logged in as " + username);
 }
 
+static bool isValidUsername(const std::string &username)
+{
+    if (username.empty()) return false;
+    for (char c : username)
+        if (!isalnum(static_cast<unsigned char>(c)))
+            return false;
+    return true;
+}
+
 void cmdCheckUser(int fd, const std::vector<std::string> &args, ServerState &state)
 {
     if (args.size() < 2) { sendLine(fd, "ERR Usage: CHECK_USER <username>"); return; }
+    if (!isValidUsername(args[1])) { sendLine(fd, "ERR Username may only contain letters and numbers"); return; }
     std::lock_guard<std::mutex> lock(state.mtx);
     auto user = state.db.query<User>("username", args[1]);
     sendLine(fd, user ? "FOUND" : "NOT_FOUND");

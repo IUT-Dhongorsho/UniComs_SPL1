@@ -22,10 +22,10 @@ enum class AuthStep { USERNAME, CONFIRM_SIGNUP, PASSWORD };
 
 struct UIState
 {
-    Screen   screen         = Screen::AUTH;
-    AuthStep authStep       = AuthStep::USERNAME;
-    bool     signingUp      = false;
-    bool     passwordMode   = false;   // true → readLine must not echo
+    Screen   screen       = Screen::AUTH;
+    AuthStep authStep     = AuthStep::USERNAME;
+    bool     signingUp    = false;
+    bool     passwordMode = false;
     std::string pendingUsername;
     std::string username;
     std::string target;
@@ -114,6 +114,16 @@ static void showChatHelp()
     printMsg("  /reject            reject incoming file or call");
     printMsg("  /endcall           end active call");
     printMsg("  /q                 go back to menu");
+}
+
+// ── Username validation ───────────────────────────────────────────────────────
+static bool isValidUsername(const std::string &username)
+{
+    if (username.empty()) return false;
+    for (char c : username)
+        if (!isalnum(static_cast<unsigned char>(c)))
+            return false;
+    return true;
 }
 
 // ── History decryption ────────────────────────────────────────────────────────
@@ -374,7 +384,6 @@ static void receiveLoop(int fd, std::atomic<bool> &running)
         // ── Auth responses ────────────────────────────────────────────────────
         if (line == "FOUND")
         {
-            // Username exists → ask for password (no echo)
             ui.signingUp    = false;
             ui.authStep     = AuthStep::PASSWORD;
             ui.passwordMode = true;
@@ -385,7 +394,6 @@ static void receiveLoop(int fd, std::atomic<bool> &running)
 
         if (line == "NOT_FOUND")
         {
-            // Username not found → ask whether to create account
             ui.authStep = AuthStep::CONFIRM_SIGNUP;
             printMsg("Username '" + ui.pendingUsername + "' not found. Create account? (y/n): ");
             continue;
@@ -432,7 +440,6 @@ static void receiveLoop(int fd, std::atomic<bool> &running)
 
         if (line.rfind("ERR ", 0) == 0)
         {
-            // On auth error, reset to USERNAME step so user can try again
             if (ui.screen == Screen::AUTH)
             {
                 ui.authStep     = AuthStep::USERNAME;
@@ -444,13 +451,13 @@ static void receiveLoop(int fd, std::atomic<bool> &running)
             else { printMsg("[!] " + line.substr(4)); }
             continue;
         }
+
         if (line.rfind("OK ", 0) == 0) { printMsg(line.substr(3)); continue; }
         if (line != "OK")              { printMsg(line);            continue; }
     }
 }
 
 // ── readLine ──────────────────────────────────────────────────────────────────
-// When ui.passwordMode is true, characters are not echoed.
 static std::string readLine()
 {
     inputBuf.clear();
@@ -506,6 +513,15 @@ void runClient(int fd)
             if (ui.authStep == AuthStep::USERNAME)
             {
                 if (line.empty()) { std::cout << "Enter username: " << std::flush; continue; }
+
+                if (!isValidUsername(line))
+                {
+                    printMsg("[!] Username may only contain letters and numbers");
+                    std::lock_guard<std::mutex> lock(printMtx);
+                    std::cout << "Enter username: " << std::flush;
+                    continue;
+                }
+
                 ui.pendingUsername = line;
                 sendLine(fd, "CHECK_USER " + line);
                 continue;
@@ -542,8 +558,6 @@ void runClient(int fd)
                     sendLine(fd, "SIGNUP " + ui.pendingUsername + " " + line);
                 else
                     sendLine(fd, "LOGIN "  + ui.pendingUsername + " " + line);
-                // authStep reset to USERNAME happens on ERR (failed) or
-                // screen transitions to MENU (success) in receiveLoop
                 continue;
             }
         }
