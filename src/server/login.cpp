@@ -74,6 +74,14 @@ void cmdLogin(int fd, const std::vector<std::string> &args, ServerState &state)
     sendLine(fd, "OK Logged in as " + username);
 }
 
+void cmdCheckUser(int fd, const std::vector<std::string> &args, ServerState &state)
+{
+    if (args.size() < 2) { sendLine(fd, "ERR Usage: CHECK_USER <username>"); return; }
+    std::lock_guard<std::mutex> lock(state.mtx);
+    auto user = state.db.query<User>("username", args[1]);
+    sendLine(fd, user ? "FOUND" : "NOT_FOUND");
+}
+
 // LOGOUT
 void cmdLogout(int fd, ServerState &state)
 {

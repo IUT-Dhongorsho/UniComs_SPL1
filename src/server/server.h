@@ -91,6 +91,7 @@ void cmdListMembers(int fd, const std::vector<std::string> &args, ServerState &s
 void cmdListUsers(int fd, ServerState &state);
 void cmdHistoryDm(int fd, const std::vector<std::string> &args, ServerState &state);
 void cmdHistoryRoom(int fd, const std::vector<std::string> &args, ServerState &state);
+void cmdCheckUser(int fd, const std::vector<std::string> &args, ServerState &state);
 
 void cmdFileSend(int fd, const std::vector<std::string> &args, ServerState &state);
 void cmdFileAccept(int fd, const std::vector<std::string> &args, ServerState &state);

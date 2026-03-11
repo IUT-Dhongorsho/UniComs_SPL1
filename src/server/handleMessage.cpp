@@ -20,6 +20,12 @@ void handleClient(int fd, ServerState &state)
         std::string cmd = parts[0];
 
         // Commands that don't require login
+        if (cmd == "CHECK_USER")
+        {
+            cmdCheckUser(fd, parts, state);
+            continue;
+        }
+        
         if (cmd == "SIGNUP")
         {
             cmdSignup(fd, parts, state);
