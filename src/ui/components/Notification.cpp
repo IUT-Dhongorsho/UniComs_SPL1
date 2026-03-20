@@ -1,9 +1,14 @@
 #include "Notification.hpp"
 #include "../Colors.hpp"
 
-Notification::Notification(WINDOW* parent) : window(parent), timer(0), isVisible(false) {}
+Notification::Notification(WINDOW* parent) 
+    : window(parent), timer(0), isVisible(false) {}
 
 Notification::~Notification() {}
+
+void Notification::setWindow(WINDOW* win) {
+    window = win;
+}
 
 void Notification::show(const std::string& msg, NotifyType t) {
     message = msg;
@@ -33,10 +38,23 @@ void Notification::render() {
     switch(type) {
         case NotifyType::SUCCESS: color = Colors::SUCCESS; break;
         case NotifyType::ERROR: color = Colors::ERROR; break;
+        case NotifyType::WARNING: color = Colors::WARNING; break;
         default: color = Colors::SYSTEM_MESSAGE; break;
     }
     
+    // Draw notification with ASCII characters
+    int msgWidth = message.length() + 4;
+    int startX = (width - msgWidth) / 2;
+    int startY = 2;
+    
     wattron(window, COLOR_PAIR(color) | A_BOLD);
-    mvwprintw(window, 2, (width - message.length()) / 2, "%s", message.c_str());
+    
+    // Use simple ASCII characters instead of Unicode
+    mvwprintw(window, startY, startX, "+%s+", std::string(msgWidth - 2, '-').c_str());
+    mvwprintw(window, startY + 1, startX, "| %s |", message.c_str());
+    mvwprintw(window, startY + 2, startX, "+%s+", std::string(msgWidth - 2, '-').c_str());
+    
     wattroff(window, COLOR_PAIR(color) | A_BOLD);
+    
+    wrefresh(window);
 }

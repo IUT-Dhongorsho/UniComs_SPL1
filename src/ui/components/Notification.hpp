@@ -5,7 +5,8 @@
 enum class NotifyType {
     INFO,
     SUCCESS,
-    ERROR
+    ERROR,
+    WARNING
 };
 
 class Notification {
@@ -17,8 +18,10 @@ private:
     bool isVisible;
     
 public:
-    Notification(WINDOW* parent);
+    Notification(WINDOW* parent);  // Constructor takes parent window
     ~Notification();
+    
+    void setWindow(WINDOW* win) { window = win; }  // ADD THIS METHOD
     
     void show(const std::string& msg, NotifyType t = NotifyType::INFO);
     void hide();
