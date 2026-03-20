@@ -13,6 +13,10 @@
 #include "components/InputField.hpp"
 #include "components/StatusBar.hpp"
 #include "components/FileTransferUI.hpp"
+#include "screens/WelcomeScreen.hpp"
+#include "screens/LoginScreen.hpp"
+#include "screens/SettingsScreen.hpp"
+#include "components/Notification.hpp"
 
 // Message structure for UI
 struct UIMessage {
@@ -93,6 +97,21 @@ private:
     void processInput(int ch);
     void drawBorderWithTitle(WINDOW* win, const std::string& title);
     std::string getCurrentTime();
+
+    enum class AppScreen {
+        WELCOME,
+        LOGIN,
+        MAIN,
+        SETTINGS
+    };
+    
+    AppScreen currentScreen;
+    WelcomeScreen* welcomeScreen;
+    LoginScreen* loginScreen;
+    SettingsScreen* settingsScreen;
+    Notification* notification;
+    
+    void switchScreen(AppScreen newScreen);
     
 public:
     UIManager();

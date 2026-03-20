@@ -11,11 +11,22 @@
 UIManager::UIManager() 
     : chatScroll(0), showOnlineOnly(false), 
       currentTheme(Colors::Theme::DARK), m_isRunning(false),
-      historyIndex(-1), frameCounter(0), showTypingAnimation(false) {
+      historyIndex(-1), frameCounter(0), showTypingAnimation(false),
+      currentScreen(AppScreen::WELCOME) {  // ADD THIS LINE
     fileTransfer = std::make_unique<FileTransferUI>();
+    
+    welcomeScreen = new WelcomeScreen();
+    loginScreen = new LoginScreen();
+    settingsScreen = new SettingsScreen();
+    notification = new Notification(nullptr);
 }
-
 UIManager::~UIManager() {
+    // ADD THESE LINES
+    delete welcomeScreen;
+    delete loginScreen;
+    delete settingsScreen;
+    delete notification;
+    
     shutdown();
 }
 
@@ -59,6 +70,66 @@ void UIManager::initialize() {
     fileTransfer->setWindow(newwin(12, 50, height/2 - 6, width/2 - 25));
     
     m_isRunning = true;
+
+    // Set file transfer window
+    fileTransfer->setWindow(newwin(12, 50, height/2 - 6, width/2 - 25));
+    
+    // ADD THESE LINES - Set windows for new screens
+    welcomeScreen->setWindow(stdscr);  // Use full screen for welcome
+    loginScreen->setWindow(stdscr);    // Use full screen for login
+    settingsScreen->setWindow(stdscr); // Use full screen for settings
+    notification->setWindow(stdscr);
+    
+    // ADD THESE LINES - Setup callbacks
+    welcomeScreen->onLogin = [this]() { switchScreen(AppScreen::LOGIN); };
+    welcomeScreen->onSignup = [this]() { 
+        // You can implement signup screen similarly
+        // For now, just show notification
+        notification->show("Signup not implemented yet", NotifyType::INFO);
+    };
+    welcomeScreen->onExit = [this]() { 
+        m_isRunning = false; 
+    };
+    
+    loginScreen->onLogin = [this](const std::string& user, const std::string& pass) {
+        // Here you would call your existing login logic
+        // For now, just switch to main screen
+        switchScreen(AppScreen::MAIN);
+        setCurrentUser(user);
+        notification->show("Welcome " + user + "!", NotifyType::SUCCESS);
+    };
+    loginScreen->onBack = [this]() { switchScreen(AppScreen::WELCOME); };
+    
+    settingsScreen->onBack = [this]() { switchScreen(AppScreen::MAIN); };
+    settingsScreen->onThemeChange = [this](Colors::Theme theme) {
+        setTheme(theme);
+    };
+    
+    m_isRunning = true;
+}
+
+void UIManager::switchScreen(AppScreen newScreen) {
+    // Hide all screens first
+    welcomeScreen->hide();
+    loginScreen->hide();
+    settingsScreen->hide();
+    
+    // Show the new screen
+    currentScreen = newScreen;
+    switch(newScreen) {
+        case AppScreen::WELCOME:
+            welcomeScreen->show();
+            break;
+        case AppScreen::LOGIN:
+            loginScreen->show();
+            break;
+        case AppScreen::MAIN:
+            // Main screen is handled by existing UI
+            break;
+        case AppScreen::SETTINGS:
+            settingsScreen->show();
+            break;
+    }
 }
 
 void UIManager::shutdown() {
@@ -477,20 +548,56 @@ void UIManager::run() {
         int ch = wgetch(input_win);
         
         if (ch != ERR) {
-            processInput(ch);
+            // Route input to the appropriate screen
+            switch(currentScreen) {
+                case AppScreen::WELCOME:
+                    welcomeScreen->handleKey(ch);
+                    break;
+                case AppScreen::LOGIN:
+                    loginScreen->handleKey(ch);
+                    break;
+                case AppScreen::SETTINGS:
+                    settingsScreen->handleKey(ch);
+                    break;
+                case AppScreen::MAIN:
+                    processInput(ch);  // Your existing input handler
+                    break;
+            }
         }
         
         // Update animations
         frameCounter++;
         
-        // Draw everything
-        drawTitle();
-        drawChatWindow();
-        drawContacts();
-        drawInputBar();
-        drawStatusBar();
+        // Clear the screen first
+        werase(stdscr);
         
-        if (fileTransfer) {
+        // Draw the appropriate screen
+        switch(currentScreen) {
+            case AppScreen::WELCOME:
+                welcomeScreen->render();
+                break;
+            case AppScreen::LOGIN:
+                loginScreen->render();
+                break;
+            case AppScreen::SETTINGS:
+                settingsScreen->render();
+                break;
+            case AppScreen::MAIN:
+                // Your existing UI drawing code
+                drawTitle();
+                drawChatWindow();
+                drawContacts();
+                drawInputBar();
+                drawStatusBar();
+                break;
+        }
+        
+        // Always draw notifications on top
+        notification->update();
+        notification->render();
+        
+        // Draw file transfer if visible
+        if (fileTransfer && currentScreen == AppScreen::MAIN) {
             fileTransfer->render();
         }
         
@@ -578,4 +685,8 @@ void UIManager::clearChat() {
 void UIManager::setTheme(Colors::Theme theme) {
     currentTheme = theme;
     Colors::applyTheme(theme);
+}
+
+void UIManager::setCurrentUser(const std::string& username) {
+    currentUser = username;
 }
