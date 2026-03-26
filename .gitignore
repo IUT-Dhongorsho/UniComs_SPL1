@@ -1,2 +1,6 @@
 **/*.csv
 **/*.o
+._*
+/docs
+CLAUDE.md
+GEMINI.md

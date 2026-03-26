@@ -1,0 +1,24 @@
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://openrouter.ai/api",
+    "ANTHROPIC_AUTH_TOKEN": "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",
+    "ANTHROPIC_API_KEY": "",
+    "ANTHROPIC_MODEL": "stepfun/step-3.5-flash:free"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(pnpm exec:*)",
+      "Bash(pnpm exec:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "Bash(dot_clean -m \"/Volumes/Sieam's SSD/vid_testimonial/vouch/src/lib/validations\")",
+      "mcp__plugin_context7_context7__query-docs",
+      "mcp__plugin_context7_context7__resolve-library-id"
+    ]
+  },
+  "enabledPlugins": {
+    "postman@claude-plugins-official": false,
+    "serena@claude-plugins-official": false
+  }
+}

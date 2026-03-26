@@ -87,5 +87,3 @@ struct CryptoSession
         return std::string(pt.begin(), pt.end());
     }
 };
-
-extern std::unordered_map<std::string, CryptoSession> sessionStore;

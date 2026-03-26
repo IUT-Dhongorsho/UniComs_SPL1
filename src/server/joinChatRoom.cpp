@@ -101,16 +101,17 @@ void cmdMsg(int fd, const std::vector<std::string> &args, ServerState &state)
     sendLine(fd, "OK");
 }
 
-// CREATE_ROOM <roomName>
+// CREATE_ROOM <roomName> <password>
 void cmdCreateRoom(int fd, const std::vector<std::string> &args, ServerState &state)
 {
-    if (args.size() < 2)
+    if (args.size() < 3)
     {
-        sendLine(fd, "ERR Usage: CREATE_ROOM <roomName>");
+        sendLine(fd, "ERR Usage: CREATE_ROOM <roomName> <password>");
         return;
     }
 
     const std::string &roomName = args[1];
+    const std::string &password = args[2];
     std::lock_guard<std::mutex> lock(state.mtx);
 
     if (state.db.query<ChatRoom>("name", roomName))
@@ -120,7 +121,8 @@ void cmdCreateRoom(int fd, const std::vector<std::string> &args, ServerState &st
     }
 
     const auto &sess = state.sessions[fd];
-    ChatRoom room{generateId(), roomName, sess.userId};
+    std::string hashedPassword = hashPassword(password);
+    ChatRoom room{generateId(), roomName, sess.userId, hashedPassword};
     state.db.insert(room);
 
     // Auto-join creator

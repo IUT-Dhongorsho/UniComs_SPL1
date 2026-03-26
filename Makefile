@@ -32,6 +32,12 @@ SERVER_SRC = \
 
 CLIENT_SRC = \
     src/client/client.cpp \
+    src/client/Terminal.cpp \
+    src/client/NetworkManager.cpp \
+    src/client/CryptoHandler.cpp \
+    src/client/FileHandler.cpp \
+    src/client/VoiceHandler.cpp \
+    src/client/ClientController.cpp \
     src/client/Connect.cpp \
     src/voice/voice_call.cpp \
     src/utils/utils.cpp \
