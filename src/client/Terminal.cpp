@@ -61,7 +61,6 @@ void Terminal::showMenu() {
 
 void Terminal::showChatHelp() {
     if (state.screen == Screen::ROOM) {
-        printMsg("  /send <filepath>   send a file to a room member (prompts for user)");
         printMsg("  /history           show room chat history");
         printMsg("  /q                 go back to menu");
     } else { // DM
