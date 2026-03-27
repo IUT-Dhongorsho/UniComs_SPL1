@@ -687,6 +687,3 @@ void UIManager::setTheme(Colors::Theme theme) {
     Colors::applyTheme(theme);
 }
 
-void UIManager::setCurrentUser(const std::string& username) {
-    currentUser = username;
-}
