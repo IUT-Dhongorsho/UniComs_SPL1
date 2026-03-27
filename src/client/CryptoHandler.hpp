@@ -2,11 +2,12 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <mutex>
 #include "session.h"
 
 class CryptoHandler {
 public:
-    CryptoHandler(int fd, std::unordered_map<std::string, CryptoSession>& sessions);
+    CryptoHandler(int fd, std::unordered_map<std::string, CryptoSession>& sessions, std::string& username);
 
     bool handleDHInit(const std::string& line);
     bool handleDHReply(const std::string& line);
@@ -20,4 +21,6 @@ public:
 private:
     int fd;
     std::unordered_map<std::string, CryptoSession>& sessionStore;
+    std::string& myUsername;
+    std::mutex mtx;
 };

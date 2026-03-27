@@ -4,7 +4,7 @@
 #include <unistd.h>
 
 ClientController::ClientController(int fd)
-    : terminal(ui), net(fd), crypto(fd, sessionStore), file(fd), voice(fd) {}
+    : terminal(ui), net(fd), crypto(fd, sessionStore, ui.username), file(fd), voice(fd) {}
 
 bool ClientController::isValidUsername(const std::string &username) {
     if (username.empty()) return false;
@@ -48,15 +48,24 @@ void ClientController::onServerMessage(const std::string& line) {
     if (crypto.handleDHInit(line)) {
         auto p = splitMessage(line, ' ', 4);
         terminal.printMsg("[crypto] Secure session established with " + p[1]);
+        if (ui.target == p[1]) {
+            ui.screen = Screen::DM;
+            terminal.disableRawMode();
+            std::cout << "\033[2J\033[H" << "Chatting with " << p[1] << ". Type /help for commands.\n\n" << terminal.prompt() << std::flush;
+            terminal.enableRawMode();
+        }
         return;
     }
 
     if (crypto.handleDHReply(line)) {
         auto p = splitMessage(line, ' ', 4);
-        ui.target = p[1];
-        ui.screen = Screen::DM;
         terminal.printMsg("[crypto] Secure session established with " + p[1]);
-        terminal.printMsg("Now chatting with " + p[1] + ". Type /help for commands.");
+        if (ui.target == p[1]) {
+            ui.screen = Screen::DM;
+            terminal.disableRawMode();
+            std::cout << "\033[2J\033[H" << "Chatting with " << p[1] << ". Type /help for commands.\n\n" << terminal.prompt() << std::flush;
+            terminal.enableRawMode();
+        }
         return;
     }
 
@@ -262,8 +271,9 @@ void ClientController::handleMenuInput(const std::string& line) {
 
     if (cmd == "dm" && parts.size() >= 2) {
         const std::string &peer = parts[1];
+        ui.target = peer; 
         if (crypto.isSessionReady(peer)) {
-            ui.target = peer; ui.screen = Screen::DM;
+            ui.screen = Screen::DM;
             terminal.disableRawMode();
             std::cout << "\033[2J\033[H" << "Chatting with " << peer << ". Type /help for commands.\n\n" << terminal.prompt() << std::flush;
             terminal.enableRawMode();

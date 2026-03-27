@@ -19,15 +19,17 @@ struct CryptoSession
     long long privKey = 0;
     long long pubKey = 0;
     long long sharedSecret = 0;
-    std::vector<uint8_t> aesKey; // 32 bytes
-    std::vector<uint8_t> nonce;  // 16 bytes
+    std::vector<uint8_t> localNonce; // Our original random nonce
+    std::vector<uint8_t> aesKey;     // 32 bytes
+    std::vector<uint8_t> nonce;      // Final XORed nonce (16 bytes)
     bool ready = false;
 
     void init()
     {
         privKey = genPrivKey();
         pubKey  = genPubKey(privKey);
-        nonce   = randomBytes(16);
+        localNonce = randomBytes(16);
+        nonce.resize(16);
     }
 
     void deriveKey(long long otherPubKey, const std::vector<uint8_t> &theirNonce)
@@ -35,13 +37,14 @@ struct CryptoSession
         sharedSecret = computeSecret(privKey, otherPubKey);
 
         std::string hash = sha256(std::to_string(sharedSecret));
-        aesKey.resize(32);
+        aesKey.assign(32, 0);
         for (int i = 0; i < 32; i++)
             aesKey[i] = static_cast<uint8_t>(
                 std::stoul(hash.substr(i * 2, 2), nullptr, 16));
 
+        nonce.resize(16);
         for (int i = 0; i < 16; i++)
-            nonce[i] ^= theirNonce[i];
+            nonce[i] = localNonce[i] ^ theirNonce[i];
 
         ready = true;
     }
