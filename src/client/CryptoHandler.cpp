@@ -16,22 +16,29 @@ bool CryptoHandler::handleDHInit(const std::string& line) {
         auto theirNonce     = base64Decode(p[3]);
 
         std::lock_guard<std::mutex> lock(mtx);
-        
-        // Handle collision: if both initiated, lexicographically smaller username wins the original initiative.
-        // If we are "larger", we yield and process their INIT as a replacement for ours.
-        if (sessionStore.count(peer) && !sessionStore[peer].ready) {
-            if (myUsername < peer) {
-                // We are the winner. Ignore their INIT; they will receive our INIT and process it.
-                return true; 
-            }
+
+        // Get or create the session
+        auto it = sessionStore.find(peer);
+        if (it == sessionStore.end()) {
+            CryptoSession s;
+            s.init();
+            sessionStore[peer] = s;
+            it = sessionStore.find(peer);
         }
 
-        CryptoSession s;
-        s.init();
+        CryptoSession &s = it->second;
+
+        // If the session is already fully established, ignore this duplicate INIT
+        if (s.ready) {
+            return true;
+        }
+
+        // Use existing session's private key and local nonce to derive shared secret
         s.deriveKey(theirPub, theirNonce);
         s.save(peer);
-        sessionStore[peer] = s;
 
+        // Send our public key and local nonce (these come from the session, which was either
+        // created in this call or from a previous initiateSession call)
         sendLine(fd, "DH_REPLY " + peer + " " +
                         std::to_string(s.pubKey) + " " +
                         base64Encode(s.localNonce));
@@ -61,21 +68,23 @@ bool CryptoHandler::handleDHReply(const std::string& line) {
 
 void CryptoHandler::initiateSession(const std::string& peer) {
     std::lock_guard<std::mutex> lock(mtx);
-    if (!sessionStore.count(peer) || !sessionStore[peer].ready) {
-        CryptoSession s;
-        if (s.load(peer)) {
-            sessionStore[peer] = s;
-            return;
-        }
+    // If a session already exists (in progress or established), do nothing.
+    if (sessionStore.count(peer)) {
+        return;
     }
 
-    if (!sessionStore.count(peer) || !sessionStore[peer].ready) {
-        CryptoSession s;
-        s.init();
+    // Try to load a saved session from disk
+    CryptoSession s;
+    if (s.load(peer)) {
         sessionStore[peer] = s;
-        sendLine(fd, "DH_INIT " + peer + " " +
-                        std::to_string(s.pubKey) + " " + base64Encode(s.localNonce));
+        return;
     }
+
+    // No saved session; create a new one and initiate DH
+    s.init();
+    sessionStore[peer] = s;
+    sendLine(fd, "DH_INIT " + peer + " " +
+                    std::to_string(s.pubKey) + " " + base64Encode(s.localNonce));
 }
 
 bool CryptoHandler::isSessionReady(const std::string& peer) {

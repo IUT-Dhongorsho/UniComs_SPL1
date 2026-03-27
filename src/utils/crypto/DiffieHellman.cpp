@@ -3,19 +3,19 @@
 
 long long modexp(long long base, long long exp, long long mod)
 {
-    long long result = 1;
-    base = base % mod;
+    __int128 result = 1;
+    __int128 b = base % mod;
 
     while (exp > 0)
     {
         if (exp & 1)
-            result = (result * base) % mod;
+            result = (result * b) % mod;
 
-        base = (base * base) % mod;
+        b = (b * b) % mod;
         exp >>= 1;
     }
 
-    return result;
+    return static_cast<long long>(result);
 }
 
 long long genPrivKey()
