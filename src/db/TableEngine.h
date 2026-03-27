@@ -3,10 +3,10 @@
 #include <vector>
 #include <optional>
 #include <string>
-#include "Schema.hpp"
-#include "csv_storage.hpp"
-#include "Indexer.hpp"
-#include "Exceptions.hpp"
+#include "Schema.h"
+#include "CsvStorage.h"
+#include "Indexer.h"
+#include "Exceptions.h"
 
 class TableEngine
 {

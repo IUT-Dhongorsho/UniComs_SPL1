@@ -1,4 +1,4 @@
-#include "server.h"
+#include "Server.h"
 #include <unistd.h>
 
 void handleClient(int fd, ServerState &state)

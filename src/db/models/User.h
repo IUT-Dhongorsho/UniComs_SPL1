@@ -1,5 +1,5 @@
 #pragma once
-#include "../Schema.hpp"
+#include "../Schema.h"
 #include <string>
 #include <vector>
 #include <stdexcept>

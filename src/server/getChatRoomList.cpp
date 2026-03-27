@@ -1,4 +1,4 @@
-#include "server.h"
+#include "Server.h"
 
 // LIST_ROOMS
 void cmdListRooms(int fd, ServerState &state)

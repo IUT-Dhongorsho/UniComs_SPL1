@@ -5,11 +5,11 @@
 #include <unordered_map>
 #include <fstream>
 #include <filesystem>
-#include "../utils/crypto/diffie_hellman.h"
-#include "../utils/sha256.h"
-#include "../utils/crypto/aes.h"
-#include "../utils/crypto/random.h"
-#include "base64.h"
+#include "../utils/crypto/DiffieHellman.h"
+#include "../utils/Sha256.h"
+#include "../utils/crypto/Aes.h"
+#include "../utils/crypto/Random.h"
+#include "Base64.h"
 
 // Directory where per-peer keys are stored
 static const std::string KEY_DIR = std::string(getenv("HOME")) + "/.chatapp/keys/";

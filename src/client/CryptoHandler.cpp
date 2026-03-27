@@ -1,6 +1,6 @@
-#include "CryptoHandler.hpp"
-#include "../utils/utils.h"
-#include "base64.h"
+#include "CryptoHandler.h"
+#include "../utils/Utils.h"
+#include "Base64.h"
 #include <iostream>
 
 CryptoHandler::CryptoHandler(int fd, std::unordered_map<std::string, CryptoSession>& sessions, std::string& username)

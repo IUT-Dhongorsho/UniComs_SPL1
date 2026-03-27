@@ -1,4 +1,4 @@
-#include "server.h"
+#include "Server.h"
 
 // SIGNUP <username> <password>
 void cmdSignup(int fd, const std::vector<std::string> &args, ServerState &state)

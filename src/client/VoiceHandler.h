@@ -1,6 +1,6 @@
 #pragma once
 #include <string>
-#include "../voice/voice_call.hpp"
+#include "../voice/VoiceCall.h"
 
 class VoiceHandler {
 public:

@@ -2,7 +2,7 @@
 
 #include <unordered_map>
 #include <string>
-#include "Schema.hpp"
+#include "Schema.h"
 
 class Catalog
 {

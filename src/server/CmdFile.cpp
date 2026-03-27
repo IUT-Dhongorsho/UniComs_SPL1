@@ -1,4 +1,4 @@
-#include "server.h"
+#include "Server.h"
 
 // FILE_SEND <username> <filename> <filesize>
 void cmdFileSend(int fd, const std::vector<std::string> &args, ServerState &state)

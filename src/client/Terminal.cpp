@@ -1,4 +1,4 @@
-#include "Terminal.hpp"
+#include "Terminal.h"
 #include <iostream>
 #include <unistd.h>
 #include <termios.h>

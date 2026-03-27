@@ -7,12 +7,12 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include "../db/Database.hpp"
-#include "../db/models/User.hpp"
-#include "../db/models/Message.hpp"
-#include "../db/models/Chatroom.hpp"
-#include "../db/models/Chatroommember.hpp"
-#include "../utils/utils.h"
+#include "../db/Database.h"
+#include "../db/models/User.h"
+#include "../db/models/Message.h"
+#include "../db/models/ChatRoom.h"
+#include "../db/models/ChatRoomMember.h"
+#include "../utils/Utils.h"
 
 // ---- Protocol ----
 // All messages are newline-terminated strings.

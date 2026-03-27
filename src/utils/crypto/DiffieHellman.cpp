@@ -1,4 +1,4 @@
-#include "diffie_hellman.h"
+#include "DiffieHellman.h"
 #include <random>
 
 long long modexp(long long base, long long exp, long long mod)

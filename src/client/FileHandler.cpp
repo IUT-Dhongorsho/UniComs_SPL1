@@ -1,6 +1,6 @@
-#include "FileHandler.hpp"
-#include "../utils/utils.h"
-#include "base64.h"
+#include "FileHandler.h"
+#include "../utils/Utils.h"
+#include "Base64.h"
 #include <iostream>
 #include <fstream>
 #include <filesystem>

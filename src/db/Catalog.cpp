@@ -1,4 +1,4 @@
-#include "Catalog.hpp"
+#include "Catalog.h"
 #include <fstream>
 #include <sstream>
 #include <vector>

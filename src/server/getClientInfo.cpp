@@ -1,4 +1,4 @@
-#include "server.h"
+#include "Server.h"
 #include <string>
 
 std::string getClientInfo(const int clientSock)

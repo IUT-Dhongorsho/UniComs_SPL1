@@ -1,5 +1,5 @@
-#include "ClientController.hpp"
-#include "client.h"
+#include "ClientController.h"
+#include "Client.h"
 #include <iostream>
 
 int main(int argc, char *argv[])

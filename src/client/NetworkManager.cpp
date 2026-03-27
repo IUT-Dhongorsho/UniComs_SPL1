@@ -1,4 +1,4 @@
-#include "NetworkManager.hpp"
+#include "NetworkManager.h"
 #include <thread>
 #include <sys/socket.h>
 #include <unistd.h>

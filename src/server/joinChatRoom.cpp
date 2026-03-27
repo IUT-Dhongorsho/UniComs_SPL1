@@ -1,4 +1,4 @@
-#include "server.h"
+#include "Server.h"
 
 // JOIN <roomName>
 void cmdJoin(int fd, const std::vector<std::string> &args, ServerState &state)

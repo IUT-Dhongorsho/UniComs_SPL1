@@ -1,4 +1,4 @@
-#include "server.h"
+#include "Server.h"
 
 // CALL <username>
 void cmdCall(int fd, const std::vector<std::string> &args, ServerState &state)

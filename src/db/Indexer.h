@@ -2,7 +2,7 @@
 
 #include <unordered_map>
 #include <optional>
-#include "Schema.hpp"
+#include "Schema.h"
 
 class IndexManager
 {

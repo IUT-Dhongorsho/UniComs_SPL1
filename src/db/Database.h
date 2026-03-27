@@ -3,9 +3,9 @@
 #include <optional>
 #include <vector>
 #include <stdexcept>
-#include "Catalog.hpp"
-#include "Table_Engine.hpp"
-#include "Exceptions.hpp"
+#include "Catalog.h"
+#include "TableEngine.h"
+#include "Exceptions.h"
 
 class Database
 {
@@ -125,7 +125,7 @@ public:
         engines.at(name).updateByPrimary(primaryKey, newObj.serialize());
     }
 
-    void delete_by_field(const std::string &tableName, const std::string &field, const std::string &value)
+    void deleteByField(const std::string &tableName, const std::string &field, const std::string &value)
     {
         engines.at(tableName).deleteAllByField(field, value);
     }

@@ -6,8 +6,8 @@
 #include <deque>
 #include <vector>
 #include <portaudio.h>
-#include "adpcm.hpp"
-#include "udp_socket.hpp"
+#include "Adpcm.h"
+#include "UdpSocket.h"
 
 class VoiceCall {
 public:

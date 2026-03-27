@@ -1,4 +1,4 @@
-#include "utils.h"
+#include "Utils.h"
 #include <chrono>
 #include <sstream>
 #include <iomanip>
@@ -7,7 +7,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <ctime>
-#include "sha256.h"
+#include "Sha256.h"
 #include <fstream>
 
 std::string generateId()

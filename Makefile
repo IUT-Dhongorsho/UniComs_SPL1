@@ -1,5 +1,5 @@
 CXX      = g++
-CXXFLAGS = -std=c++17 -Wall -pthread
+CXXFLAGS = -std=c++17 -Wall -pthread -Wno-nonportable-include-path
 LDFLAGS  =
 
 UNAME := $(shell uname)
@@ -13,25 +13,25 @@ else
 endif
 
 SERVER_SRC = \
-    src/server/server.cpp \
+    src/server/Server.cpp \
     src/server/Socket.cpp \
-    src/server/getClientInfo.cpp \
-    src/server/handleMessage.cpp \
-    src/server/login.cpp \
-    src/server/cmd_file.cpp \
-    src/server/cmd_call.cpp \
-    src/server/broadcast.cpp \
-    src/server/joinChatRoom.cpp \
-    src/server/getChatRoomList.cpp \
-    src/utils/utils.cpp \
-    src/utils/sha256.cpp \
+    src/server/GetClientInfo.cpp \
+    src/server/HandleMessage.cpp \
+    src/server/Login.cpp \
+    src/server/CmdFile.cpp \
+    src/server/CmdCall.cpp \
+    src/server/Broadcast.cpp \
+    src/server/JoinChatRoom.cpp \
+    src/server/GetChatRoomList.cpp \
+    src/utils/Utils.cpp \
+    src/utils/Sha256.cpp \
     src/db/Catalog.cpp \
     src/db/Indexer.cpp \
-    src/db/Table_Engine.cpp \
-    src/db/csv_storage.cpp
+    src/db/TableEngine.cpp \
+    src/db/CsvStorage.cpp
 
 CLIENT_SRC = \
-    src/client/client.cpp \
+    src/client/Client.cpp \
     src/client/Terminal.cpp \
     src/client/NetworkManager.cpp \
     src/client/CryptoHandler.cpp \
@@ -39,12 +39,12 @@ CLIENT_SRC = \
     src/client/VoiceHandler.cpp \
     src/client/ClientController.cpp \
     src/client/Connect.cpp \
-    src/voice/voice_call.cpp \
-    src/utils/utils.cpp \
-    src/utils/sha256.cpp \
-    src/utils/crypto/aes.cpp \
-    src/utils/crypto/diffie_hellman.cpp \
-    src/utils/crypto/random.cpp
+    src/voice/VoiceCall.cpp \
+    src/utils/Utils.cpp \
+    src/utils/Sha256.cpp \
+    src/utils/crypto/Aes.cpp \
+    src/utils/crypto/DiffieHellman.cpp \
+    src/utils/crypto/Random.cpp
 
 all: server client
 

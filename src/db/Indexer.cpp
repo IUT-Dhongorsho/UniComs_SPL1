@@ -1,4 +1,4 @@
-#include "Indexer.hpp"
+#include "Indexer.h"
 
 void IndexManager::build(const Schema &schema,
                          const std::vector<std::vector<std::string>> &rows)

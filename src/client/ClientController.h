@@ -1,9 +1,9 @@
 #pragma once
-#include "Terminal.hpp"
-#include "NetworkManager.hpp"
-#include "CryptoHandler.hpp"
-#include "FileHandler.hpp"
-#include "VoiceHandler.hpp"
+#include "Terminal.h"
+#include "NetworkManager.h"
+#include "CryptoHandler.h"
+#include "FileHandler.h"
+#include "VoiceHandler.h"
 #include <unordered_map>
 #include <string>
 

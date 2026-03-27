@@ -1,5 +1,5 @@
-#include "VoiceHandler.hpp"
-#include "../utils/utils.h"
+#include "VoiceHandler.h"
+#include "../utils/Utils.h"
 #include <iostream>
 
 VoiceHandler::VoiceHandler(int fd) {}
