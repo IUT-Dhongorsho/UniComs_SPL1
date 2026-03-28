@@ -33,9 +33,17 @@ void ClientController::run()
 
     while (running)
     {
+        // Don't let the user type if we are waiting for FOUND/NOT_FOUND/OK
+        if (ui.waiting)
+        {
+            usleep(50000); // 50ms sleep to save CPU
+            continue;
+        }
+
         std::string line = terminal.readLine();
         if (line.empty() && ui.authStep != AuthStep::PASSWORD)
             continue;
+
         handleInput(line);
     }
 
@@ -45,160 +53,51 @@ void ClientController::run()
 
 void ClientController::onServerMessage(const std::string &line)
 {
-    if (line == "[disconnected from server]")
-    {
-        terminal.printMsg(line);
-        running = false;
-        return;
-    }
-
-    if (crypto.handleDHReply(line))
-    {
-        auto p = splitMessage(line, ' ', 4);
-        terminal.printMsg("[crypto] Secure session established with " + p[1]);
-        if (ui.target == p[1] && ui.screen == Screen::MENU)
-        { // auto-enter DM from menu
-            ui.screen = Screen::DM;
-            terminal.disableRawMode();
-            std::cout << "\033[2J\033[H" << "Chatting with " << p[1]
-                      << ". Type /help for commands.\n\n"
-                      << terminal.prompt() << std::flush;
-            terminal.enableRawMode();
-        }
-        return;
-    }
-
-    if (crypto.handleDHInit(line))
-    {
-        auto p = splitMessage(line, ' ', 4);
-        terminal.printMsg("[crypto] Secure session established with " + p[1]);
-        if (ui.target == p[1] && ui.screen == Screen::MENU)
-        { // same here
-            ui.screen = Screen::DM;
-            terminal.disableRawMode();
-            std::cout << "\033[2J\033[H" << "Chatting with " << p[1]
-                      << ". Type /help for commands.\n\n"
-                      << terminal.prompt() << std::flush;
-            terminal.enableRawMode();
-        }
-        return;
-    }
-
-    if (file.handleFileAccepted(line))
-    {
-        terminal.printMsg("[file] Sending " + file.getPendingPath() + "...");
-        // Sending is handled inside FileHandler::handleFileAccepted (blocking loop)
-        terminal.printMsg("[file] Sent.");
-        return;
-    }
-
-    if (file.handleFileRejected(line))
-    {
-        terminal.printMsg("[file] Transfer rejected.");
-        return;
-    }
-
-    if (file.handleFileIncoming(line))
-    {
-        auto parts = splitMessage(line, ' ', 3);
-        terminal.printMsg("[file] Receiving " + parts[1] + "...");
-        return;
-    }
-
-    if (file.handleFileData(line))
-        return;
-
-    std::string savedPath;
-    if (file.handleFileEnd(line, savedPath))
-    {
-        if (!savedPath.empty())
-            terminal.printMsg("[file] Saved to " + savedPath);
-        return;
-    }
-
-    std::string sender, fname, fsize;
-    if (file.handleFileOffer(line, sender, fname, fsize))
-    {
-        terminal.printMsg("[!] " + sender + " wants to send you " + fname +
-                          " (" + fsize + " bytes)  →  /accept or /reject");
-        return;
-    }
-
-    if (voice.handleCallOffer(line, sender))
-    {
-        terminal.printMsg("[!] Incoming call from " + sender + "  →  /accept or /reject");
-        return;
-    }
-
-    std::string ip;
-    int port;
-    if (voice.handleCallAccepted(line, ip, port))
-    {
-        if (port != 0)
-        {
-            net.send("CALL_PORT " + std::to_string(voice.getLocalPort()));
-        }
-        terminal.printMsg("[voice] Call connected.");
-        return;
-    }
-
-    if (voice.handleCallPeerPort(line, ip, port))
-        return;
-    if (voice.handleCallRejected(line))
-    {
-        terminal.printMsg("[voice] Call rejected.");
-        return;
-    }
-    if (voice.handleCallEnded(line))
-    {
-        terminal.printMsg("[voice] Call ended.");
-        return;
-    }
-
-    if (line.rfind("MSG_FROM ", 0) == 0)
-    {
-        auto p = splitMessage(line, ' ', 3);
-        if (p.size() == 3)
-        {
-            const std::string &sender = p[1];
-            std::string text = crypto.decrypt(sender, p[2]);
-            if (ui.screen != Screen::DM || ui.target != sender)
-                terminal.printMsg("[DM from " + sender + "] " + text);
-            else
-                terminal.printMsg(sender + ": " + text);
-        }
-        return;
-    }
-
-    if (line.rfind("MSG_ROOM ", 0) == 0 || line.rfind("ROOM_MSG ", 0) == 0)
-    {
-        auto p = splitMessage(line, ' ', 4);
-        if (p.size() == 4)
-        {
-            const std::string &room = p[1];
-            const std::string &sender = p[2];
-            std::string text = crypto.decrypt(room, p[3]);
-            if (ui.screen != Screen::ROOM || ui.target != room)
-                terminal.printMsg("[" + room + "] " + sender + ": " + text);
-            else
-                terminal.printMsg(sender + ": " + text);
-        }
-        return;
-    }
+    ui.waiting = false;
 
     if (line == "FOUND")
     {
-        ui.signingUp = false;
-        ui.authStep = AuthStep::PASSWORD;
-        terminal.setPasswordMode(true);
-        std::cout << "\r\033[K" << "Password: " << std::flush;
+        if (ui.signingUp)
+        {
+            // Error: Trying to signup with existing name. Prompt for another instead of kicking to menu.
+            terminal.printMsg("[!] Username '" + ui.pendingUsername + "' already exists. Try another username (or type 'back'):");
+            // Stay in AuthStep::USERNAME
+        }
+        else
+        {
+            // Success: Logging in
+            ui.authStep = AuthStep::PASSWORD;
+            terminal.setPasswordMode(true);
+            terminal.printMsg("Password (or type 'back'): ");
+        }
         return;
     }
 
     if (line == "NOT_FOUND")
     {
-        ui.authStep = AuthStep::CONFIRM_SIGNUP;
-        terminal.printMsg("Username '" + ui.pendingUsername + "' not found. Create account? (y/n): ");
+        if (ui.signingUp)
+        {
+            // Success: Name available for signup
+            ui.authStep = AuthStep::CONFIRM_SIGNUP;
+            terminal.printMsg("Username '" + ui.pendingUsername + "' available. Create account? (y/n) or type 'back': ");
+        }
+        else
+        {
+            // Error: Trying to login with non-existent name. Prompt for another instead of kicking to menu.
+            terminal.printMsg("[!] User '" + ui.pendingUsername + "' not found. Try another username (or type 'back'):");
+            // Stay in AuthStep::USERNAME
+        }
+        return;
+    }
+
+    // 4. Handle Successful Auth Transitions
+    if (line.rfind("OK Signup successful", 0) == 0)
+    {
+        // Account created, now force user back to the Choose Mode screen to Login
+        ui.authStep = AuthStep::CHOOSE_MODE;
+        ui.signingUp = false;
+        terminal.printMsg(line);
+        terminal.showAuthScreen();
         return;
     }
 
@@ -217,9 +116,8 @@ void ClientController::onServerMessage(const std::string &line)
     {
         ui.username.clear();
         ui.target.clear();
-        ui.historyPeer.clear();
         ui.screen = Screen::AUTH;
-        ui.authStep = AuthStep::USERNAME;
+        ui.authStep = AuthStep::CHOOSE_MODE;
         terminal.setPasswordMode(false);
         terminal.disableRawMode();
         terminal.showAuthScreen();
@@ -227,70 +125,60 @@ void ClientController::onServerMessage(const std::string &line)
         return;
     }
 
-    if (line.rfind("OK Joined ", 0) == 0)
-        return;
-
-    if (line.rfind("INFO ", 0) == 0)
+    // 5. Handle Errors
+    if (line.rfind("ERR ", 0) == 0)
     {
-        std::string content = line.substr(5);
-        if (!ui.historyPeer.empty() && !content.empty() && content[0] == '[')
+        terminal.printMsg("[!] " + line.substr(4));
+
+        // If an error happens during Auth, allow retry or fallback gracefully
+        if (ui.screen == Screen::AUTH)
         {
-            size_t closeBracket = content.find(']');
-            if (closeBracket != std::string::npos)
+            if (line == "ERR Invalid username or password")
             {
-                size_t colonPos = content.find(':', closeBracket + 1);
-                if (colonPos != std::string::npos)
-                {
-                    std::string metadata = content.substr(0, colonPos + 1);
-                    std::string encrypted = content.substr(colonPos + 1);
-                    while (!encrypted.empty() && encrypted.front() == ' ')
-                        encrypted.erase(0, 1);
-                    std::string decrypted = crypto.decrypt(ui.historyPeer, encrypted);
-                    content = metadata + " " + decrypted;
-                }
-                else
-                {
-                    ui.historyPeer.clear();
-                }
+                // Wrong password: Let them try again or go back
+                ui.authStep = AuthStep::PASSWORD;
+                terminal.setPasswordMode(true);
+                terminal.printMsg("Try again (or type 'back'): ");
             }
             else
             {
-                ui.historyPeer.clear();
+                ui.authStep = AuthStep::CHOOSE_MODE;
+                terminal.setPasswordMode(false);
+                terminal.showAuthScreen();
             }
         }
-        else
-        {
-            ui.historyPeer.clear();
-        }
-        terminal.printMsg(content);
         return;
     }
 
-    if (line.rfind("ERR ", 0) == 0)
+    // 6. Handle Messaging and Crypto (Existing Logic)
+    if (crypto.handleDHReply(line) || crypto.handleDHInit(line))
     {
-        if (ui.screen == Screen::AUTH)
+        auto p = splitMessage(line, ' ', 4);
+        terminal.printMsg("[crypto] Secure session established with " + p[1]);
+        return;
+    }
+
+    if (line.rfind("MSG_FROM ", 0) == 0)
+    {
+        auto p = splitMessage(line, ' ', 3);
+        if (p.size() == 3)
         {
-            ui.authStep = AuthStep::USERNAME;
-            terminal.setPasswordMode(false);
-            terminal.printMsg("[!] " + line.substr(4));
-            std::cout << "Enter username: " << std::flush;
-        }
-        else
-        {
-            terminal.printMsg("[!] " + line.substr(4));
+            std::string text = crypto.decrypt(p[1], p[2]);
+            terminal.printMsg(p[1] + ": " + text);
         }
         return;
     }
 
-    if (line.rfind("OK ", 0) == 0)
+    // 7. Informational / Generic Messages
+    if (line.rfind("INFO ", 0) == 0)
     {
-        terminal.printMsg(line.substr(3));
+        terminal.printMsg(line.substr(5));
         return;
     }
+
     if (line != "OK")
     {
         terminal.printMsg(line);
-        return;
     }
 }
 
@@ -306,53 +194,71 @@ void ClientController::handleInput(const std::string &line)
 
 void ClientController::handleAuthInput(const std::string &line)
 {
+    // Global "back" handler for any step past the main menu
+    if (ui.authStep != AuthStep::CHOOSE_MODE && (line == "back" || line == "BACK"))
+    {
+        ui.authStep = AuthStep::CHOOSE_MODE;
+        terminal.setPasswordMode(false);
+        terminal.showAuthScreen();
+        return;
+    }
+
+    if (ui.authStep == AuthStep::CHOOSE_MODE)
+    {
+        if (line == "1" || line == "login" || line == "LOGIN")
+        {
+            ui.signingUp = false;
+            ui.authStep = AuthStep::USERNAME;
+            terminal.showAuthScreen();
+        }
+        else if (line == "2" || line == "signup" || line == "SIGNUP")
+        {
+            ui.signingUp = true;
+            ui.authStep = AuthStep::USERNAME;
+            terminal.showAuthScreen();
+        }
+        else
+        {
+            // Invalid choice handler
+            terminal.printMsg("[!] Invalid choice. Please try again (type 1 or 2).");
+            terminal.showAuthScreen();
+        }
+        return;
+    }
+
     if (ui.authStep == AuthStep::USERNAME)
     {
-        if (line.empty())
-        {
-            std::cout << "Enter username: " << std::flush;
-            return;
-        }
         if (!isValidUsername(line))
         {
             terminal.printMsg("[!] Username may only contain letters and numbers");
-            std::cout << "Enter username: " << std::flush;
             return;
         }
         ui.pendingUsername = line;
+        ui.waiting = true; // <-- LOCK UI
         net.send("CHECK_USER " + line);
         return;
     }
+
     if (ui.authStep == AuthStep::CONFIRM_SIGNUP)
     {
         if (line == "y" || line == "Y")
         {
-            ui.signingUp = true;
             ui.authStep = AuthStep::PASSWORD;
             terminal.setPasswordMode(true);
-            std::cout << "\r\033[K" << "Choose password: " << std::flush;
+            terminal.printMsg("Choose password (or type 'back'): ");
         }
-        else if (line == "n" || line == "N")
+        else // 'n' or anything else effectively acts as 'back'
         {
-            ui.authStep = AuthStep::USERNAME;
-            std::cout << "\r\033[K" << "Enter username: " << std::flush;
-        }
-        else
-        {
-            std::cout << "\r\033[K" << "Enter y or n: " << std::flush;
+            ui.authStep = AuthStep::CHOOSE_MODE;
+            terminal.showAuthScreen();
         }
         return;
     }
+
     if (ui.authStep == AuthStep::PASSWORD)
     {
-        if (line.empty())
-        {
-            std::cout << "\r\033[K"
-                      << (ui.signingUp ? "Choose password: " : "Password: ")
-                      << std::flush;
-            return;
-        }
         terminal.setPasswordMode(false);
+        ui.waiting = true; // <-- LOCK UI while server verifies password
         if (ui.signingUp)
             net.send("SIGNUP " + ui.pendingUsername + " " + line);
         else

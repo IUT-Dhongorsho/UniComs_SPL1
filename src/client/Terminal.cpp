@@ -40,9 +40,21 @@ void Terminal::printMsg(const std::string &msg) {
 void Terminal::showAuthScreen() {
     std::cout << "\033[2J\033[H";
     std::cout << "╔═══════════════════════════╗\n";
-    std::cout << "║        ChatApp           ║\n";
+    std::cout << "║          ChatApp          ║\n";
     std::cout << "╚═══════════════════════════╝\n\n";
-    std::cout << "Enter username: " << std::flush;
+
+    if (state.authStep == AuthStep::CHOOSE_MODE) {
+        std::cout << "Select an option:\n";
+        std::cout << "  1. Login\n";
+        std::cout << "  2. Signup\n";
+        std::cout << "\nChoice: " << std::flush;
+    } else {
+        std::string mode = state.signingUp ? "[SIGNUP]" : "[LOGIN]";
+        std::cout << mode << " (Type 'back' to return)\n";
+        if (state.authStep == AuthStep::USERNAME) {
+            std::cout << "Enter username: " << std::flush;
+        }
+    }
 }
 
 void Terminal::showMenu() {

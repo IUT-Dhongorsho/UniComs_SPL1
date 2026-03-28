@@ -4,14 +4,15 @@
 #include <termios.h>
 
 enum class Screen { AUTH, MENU, DM, ROOM };
-enum class AuthStep { USERNAME, CONFIRM_SIGNUP, PASSWORD };
+enum class AuthStep { CHOOSE_MODE, USERNAME, CONFIRM_SIGNUP, PASSWORD };
 
 struct UIState
 {
     Screen   screen       = Screen::AUTH;
-    AuthStep authStep     = AuthStep::USERNAME;
+    AuthStep authStep     = AuthStep::CHOOSE_MODE;
     bool     signingUp    = false;
     bool     passwordMode = false;
+    bool     waiting      = false;
     std::string pendingUsername;
     std::string username;
     std::string target;
