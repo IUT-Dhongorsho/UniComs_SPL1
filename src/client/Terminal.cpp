@@ -27,16 +27,23 @@ void Terminal::disableRawMode()
 
 std::string Terminal::prompt() const
 {
+    std::string self = BOLD GREEN + state.username + RESET;
     switch (state.screen)
     {
     case Screen::AUTH:
         return "> ";
     case Screen::MENU:
-        return "[" + state.username + "] > ";
+        return "[" + self + "] > ";
     case Screen::DM:
-        return "[" + state.username + " \xe2\x86\x92 " + state.target + "] > ";
+    {
+        std::string target = BOLD YELLOW + state.target + RESET;
+        return "[" + self + " \xe2\x86\x92 " + target + "] > ";
+    }
     case Screen::ROOM:
-        return "[" + state.username + " @ " + state.target + "] > ";
+    {
+        std::string target = BOLD YELLOW + state.target + RESET;
+        return "[" + self + " @ " + target + "] > ";
+    }
     }
     return "> ";
 }
@@ -51,13 +58,13 @@ void Terminal::printMsg(const std::string &msg)
 void Terminal::showAuthScreen()
 {
     std::cout << "\033[2J\033[H";
-    std::cout <<"\n\n\n";
+    std::cout << CYAN << "\n\n\n";
     std::cout << "██╗░░░██╗███╗░░██╗██╗░█████╗░░█████╗░███╗░░░███╗░██████╗\n";
     std::cout << "██║░░░██║████╗░██║██║██╔══██╗██╔══██╗████╗░████║██╔════╝\n";
     std::cout << "██║░░░██║██╔██╗██║██║██║░░╚═╝██║░░██║██╔████╔██║╚█████╗░\n";
-    std::cout << "██║░░░██║██║╚████║██║██║░░██╗██║░░██║██║╚██╔╝██║░╚═══██╗\n";
+    std::cout << "██║░░░██║██║╚████║██║██║░░██╗██║░░██╗██║╚██╔╝██║░╚═══██╗\n";
     std::cout << "╚██████╔╝██║░╚███║██║╚█████╔╝╚█████╔╝██║░╚═╝░██║██████╔╝\n";
-    std::cout << "░╚═════╝░╚═╝░░╚══╝╚═╝░╚════╝░░╚════╝░╚═╝░░░░░╚═╝╚═════╝░\n\n\n";
+    std::cout << "░╚═════╝░╚═╝░░╚══╝╚═╝░╚════╝░░╚════╝░╚═╝░░░░░╚═╝╚═════╝░\n\n\n" << RESET;
 
     if (state.authStep == AuthStep::CHOOSE_MODE)
     {
@@ -70,7 +77,7 @@ void Terminal::showAuthScreen()
     {
         std::string mode = state.signingUp ? "[SIGNUP]" : "[LOGIN]";
         // Updated instruction to match the strict /back requirement
-        std::cout << mode << " (Type '/back' to return)\n";
+        std::cout << BOLD MAGENTA << mode << RESET << " (Type '/back' to return)\n";
 
         if (state.authStep == AuthStep::USERNAME)
         {
@@ -86,15 +93,15 @@ void Terminal::showAuthScreen()
 void Terminal::showMenu()
 {
     std::cout << "\033[2J\033[H";
-    std::cout << "Logged in as " << state.username << ".\n\n";
-    std::cout << "  dm     <user>          start a DM\n";
-    std::cout << "  join   <room> <pw>     join a room (password protected)\n";
-    std::cout << "  create <room> <pw>     create a room (password protected)\n";
-    std::cout << "  users                  list users\n";
-    std::cout << "  rooms                  list rooms\n";
-    std::cout << "  history dm   <user>    DM history\n";
-    std::cout << "  history room <room>    room history\n";
-    std::cout << "  logout\n\n";
+    std::cout << "Logged in as " << BOLD GREEN << state.username << RESET << ".\n\n";
+    std::cout << "  " << CYAN << "dm" << RESET << "     <user>          start a DM\n";
+    std::cout << "  " << CYAN << "join" << RESET << "   <room> <pw>     join a room (password protected)\n";
+    std::cout << "  " << CYAN << "create" << RESET << " <room> <pw>     create a room (password protected)\n";
+    std::cout << "  " << CYAN << "users" << RESET << "                  list users\n";
+    std::cout << "  " << CYAN << "rooms" << RESET << "                  list rooms\n";
+    std::cout << "  " << CYAN << "history" << RESET << " dm   <user>    DM history\n";
+    std::cout << "  " << CYAN << "history" << RESET << " room <room>    room history\n";
+    std::cout << "  " << CYAN << "logout" << RESET << "\n\n";
     std::cout << prompt() << std::flush;
 }
 
@@ -102,18 +109,18 @@ void Terminal::showChatHelp()
 {
     if (state.screen == Screen::ROOM)
     {
-        printMsg("  /history           show room chat history");
-        printMsg("  /q                 go back to menu");
+        printMsg("  " + std::string(CYAN) + "/history" + RESET + "           show room chat history");
+        printMsg("  " + std::string(CYAN) + "/q" + RESET + "                 go back to menu");
     }
     else
     { // DM
-        printMsg("  /send <filepath>   send a file");
-        printMsg("  /call              start a voice call");
-        printMsg("  /history           show chat history");
-        printMsg("  /accept            accept incoming file or call");
-        printMsg("  /reject            reject incoming file or call");
-        printMsg("  /endcall           end active call");
-        printMsg("  /q                 go back to menu");
+        printMsg("  " + std::string(CYAN) + "/send" + RESET + " <filepath>   send a file");
+        printMsg("  " + std::string(CYAN) + "/call" + RESET + "              start a voice call");
+        printMsg("  " + std::string(CYAN) + "/history" + RESET + "           show chat history");
+        printMsg("  " + std::string(CYAN) + "/accept" + RESET + "            accept incoming file or call");
+        printMsg("  " + std::string(CYAN) + "/reject" + RESET + "            reject incoming file or call");
+        printMsg("  " + std::string(CYAN) + "/endcall" + RESET + "           end active call");
+        printMsg("  " + std::string(CYAN) + "/q" + RESET + "                 go back to menu");
     }
 }
 

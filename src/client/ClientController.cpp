@@ -60,7 +60,7 @@ void ClientController::onServerMessage(const std::string &line)
         if (ui.signingUp)
         {
             // Error: Trying to signup with existing name. Prompt for another instead of kicking to menu.
-            terminal.printMsg("[!] Username '" + ui.pendingUsername + "' already exists. Try another username (or type 'back'):");
+            terminal.printMsg(BOLD RED + std::string("[!] ") + RESET + "Username '" + ui.pendingUsername + "' already exists. Try another username (or type 'back'):");
             // Stay in AuthStep::USERNAME
         }
         else
@@ -84,19 +84,18 @@ void ClientController::onServerMessage(const std::string &line)
         else
         {
             // Error: Trying to login with non-existent name. Prompt for another instead of kicking to menu.
-            terminal.printMsg("[!] User '" + ui.pendingUsername + "' not found. Try another username (or type 'back'):");
+            terminal.printMsg(BOLD RED + std::string("[!] ") + RESET + "User '" + ui.pendingUsername + "' not found. Try another username (or type 'back'):");
             // Stay in AuthStep::USERNAME
         }
         return;
     }
 
-    // 4. Handle Successful Auth Transitions
     if (line.rfind("OK Signup successful", 0) == 0)
     {
         // Account created, now force user back to the Choose Mode screen to Login
         ui.authStep = AuthStep::CHOOSE_MODE;
         ui.signingUp = false;
-        terminal.printMsg(line);
+        terminal.printMsg(BOLD GREEN + std::string("OK") + RESET + line.substr(2));
         terminal.showAuthScreen();
         return;
     }
@@ -107,6 +106,7 @@ void ClientController::onServerMessage(const std::string &line)
         ui.screen = Screen::MENU;
         terminal.setPasswordMode(false);
         terminal.disableRawMode();
+        terminal.printMsg(BOLD GREEN + std::string("OK") + RESET + line.substr(2));
         terminal.showMenu();
         terminal.enableRawMode();
         return;
@@ -120,6 +120,7 @@ void ClientController::onServerMessage(const std::string &line)
         ui.authStep = AuthStep::CHOOSE_MODE;
         terminal.setPasswordMode(false);
         terminal.disableRawMode();
+        terminal.printMsg(BOLD GREEN + std::string("OK") + RESET + line.substr(2));
         terminal.showAuthScreen();
         terminal.enableRawMode();
         return;
@@ -128,7 +129,7 @@ void ClientController::onServerMessage(const std::string &line)
     // 5. Handle Errors
     if (line.rfind("ERR ", 0) == 0)
     {
-        terminal.printMsg("[!] " + line.substr(4));
+        terminal.printMsg(BOLD RED + std::string("ERR") + RESET + line.substr(3));
 
         // If an error happens during Auth, allow retry or fallback gracefully
         if (ui.screen == Screen::AUTH)
@@ -154,7 +155,7 @@ void ClientController::onServerMessage(const std::string &line)
     if (crypto.handleDHReply(line) || crypto.handleDHInit(line))
     {
         auto p = splitMessage(line, ' ', 4);
-        terminal.printMsg("[crypto] Secure session established with " + p[1]);
+        terminal.printMsg(BOLD BLUE + std::string("[crypto]") + RESET + " Secure session established with " + p[1]);
         return;
     }
 
@@ -164,7 +165,7 @@ void ClientController::onServerMessage(const std::string &line)
         if (p.size() == 3)
         {
             std::string text = crypto.decrypt(p[1], p[2]);
-            terminal.printMsg(p[1] + ": " + text);
+            terminal.printMsg(BOLD YELLOW + p[1] + RESET + ": " + text);
         }
         return;
     }
@@ -172,13 +173,18 @@ void ClientController::onServerMessage(const std::string &line)
     // 7. Informational / Generic Messages
     if (line.rfind("INFO ", 0) == 0)
     {
-        terminal.printMsg(line.substr(5));
+        terminal.printMsg(BOLD BLUE + std::string("INFO") + RESET + line.substr(4));
         return;
     }
 
     if (line != "OK")
     {
-        terminal.printMsg(line);
+        if (line.rfind("ERR ", 0) == 0)
+            terminal.printMsg(BOLD RED + std::string("ERR") + RESET + line.substr(3));
+        else if (line.rfind("[!] ", 0) == 0)
+            terminal.printMsg(BOLD RED + std::string("[!] ") + RESET + line.substr(4));
+        else
+            terminal.printMsg(line);
     }
 }
 
@@ -220,7 +226,7 @@ void ClientController::handleAuthInput(const std::string &line)
         else
         {
             // Invalid choice handler
-            terminal.printMsg("[!] Invalid choice. Please try again (type 1 or 2).");
+            terminal.printMsg(BOLD RED + std::string("[!] ") + RESET + "Invalid choice. Please try again (type 1 or 2).");
             terminal.showAuthScreen();
         }
         return;
@@ -230,7 +236,7 @@ void ClientController::handleAuthInput(const std::string &line)
     {
         if (!isValidUsername(line))
         {
-            terminal.printMsg("[!] Username may only contain letters and numbers");
+            terminal.printMsg(BOLD RED + std::string("[!] ") + RESET + "Username may only contain letters and numbers");
             return;
         }
         ui.pendingUsername = line;
@@ -282,14 +288,14 @@ void ClientController::handleMenuInput(const std::string &line)
         {
             ui.screen = Screen::DM;
             terminal.disableRawMode();
-            std::cout << "\033[2J\033[H" << "Chatting with " << peer << ". Type /help for commands.\n\n"
+            std::cout << "\033[2J\033[H" << "Chatting with " << BOLD YELLOW << peer << RESET << ". Type /help for commands.\n\n"
                       << terminal.prompt() << std::flush;
             terminal.enableRawMode();
         }
         else
         {
             crypto.initiateSession(peer);
-            terminal.printMsg("Initiating secure session with " + peer + "...");
+            terminal.printMsg(BOLD BLUE + std::string("INFO ") + RESET + "Initiating secure session with " + peer + "...");
         }
     }
     else if (cmd == "join" && parts.size() >= 3)
@@ -298,18 +304,18 @@ void ClientController::handleMenuInput(const std::string &line)
         ui.screen = Screen::ROOM;
         net.send("JOIN " + parts[1] + " " + parts[2]);
         terminal.disableRawMode();
-        std::cout << "\033[2J\033[H" << "Joined " << parts[1] << ". Type /help for commands.\n\n"
+        std::cout << "\033[2J\033[H" << "Joined " << BOLD YELLOW << parts[1] << RESET << ". Type /help for commands.\n\n"
                   << terminal.prompt() << std::flush;
         terminal.enableRawMode();
     }
     else if (cmd == "join" && parts.size() == 2)
     {
-        terminal.printMsg("ERR Usage: join <room> <password>");
+        terminal.printMsg(BOLD RED + std::string("ERR ") + RESET + "Usage: join <room> <password>");
     }
     else if (cmd == "create" && parts.size() >= 3)
         net.send("CREATE_ROOM " + parts[1] + " " + parts[2]);
     else if (cmd == "create" && parts.size() == 2)
-        terminal.printMsg("ERR Usage: create <room> <password>");
+        terminal.printMsg(BOLD RED + std::string("ERR ") + RESET + "Usage: create <room> <password>");
     else if (cmd == "users")
         net.send("LIST_USERS");
     else if (cmd == "rooms")
@@ -378,7 +384,7 @@ void ClientController::handleChatInput(const std::string &line)
     {
         std::string path = line.substr(6);
         if (!std::filesystem::exists(path))
-            terminal.printMsg("[!] File not found: " + path);
+            terminal.printMsg(BOLD RED + std::string("[!] ") + RESET + "File not found: " + path);
         else
         {
             size_t sz = std::filesystem::file_size(path);
@@ -408,5 +414,5 @@ void ClientController::handleChatInput(const std::string &line)
     }
     std::string toSend = crypto.encrypt(ui.target, line);
     net.send((ui.screen == Screen::DM ? "DM " : "MSG ") + ui.target + " " + toSend);
-    terminal.printMsg("you: " + line);
+    terminal.printMsg(BOLD GREEN + std::string("you") + RESET + ": " + line);
 }
