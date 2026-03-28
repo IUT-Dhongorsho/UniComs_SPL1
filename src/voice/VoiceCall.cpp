@@ -7,33 +7,33 @@ void VoiceCall::start(const std::string &ip, int port)
 {
     stop(); // Safely join existing threads before overriding them
 
-    peerIp = ip;
-    peerPort = port;
+    setPeer(ip, port);
     active = true;
     encState = {};
     decState = {};
 
     captureThread = std::thread(&VoiceCall::captureLoop, this);
     recvThread = std::thread(&VoiceCall::receiveLoop, this);
-
-    std::cerr << "[voice] Started (UDP port " << udp.localPort << ")\n";
 }
 
 void VoiceCall::stop()
 {
-    if (!active)
-        return;
+    if (!active) return;
     active = false;
-    if (captureThread.joinable())
-        captureThread.join();
-    if (recvThread.joinable())
-        recvThread.join();
-    std::cerr << "[voice] Stopped\n";
+    
+    if (captureThread.joinable()) captureThread.join();
+    if (recvThread.joinable()) recvThread.join();
+}
+
+void VoiceCall::setPeer(const std::string &ip, int port)
+{
+    std::lock_guard<std::mutex> lock(peerMtx);
+    peerIp = ip;
+    peerPort = port;
 }
 
 void VoiceCall::captureLoop()
 {
-
     PaDeviceIndex dev = Pa_GetDefaultInputDevice();
     if (dev == paNoDevice)
     {
@@ -66,10 +66,19 @@ void VoiceCall::captureLoop()
         if (err && err != paInputOverflowed)
             break;
 
-        if (peerPort > 0)
+        // Safely extract the current peer data
+        std::string targetIp;
+        int targetPort;
+        {
+            std::lock_guard<std::mutex> lock(peerMtx);
+            targetIp = peerIp;
+            targetPort = peerPort;
+        }
+
+        if (targetPort > 0)
         {
             auto encoded = ADPCM::encode(buf, encState);
-            udp.send(peerIp, peerPort, encoded);
+            udp.send(targetIp, targetPort, encoded);
         }
     }
 
@@ -79,7 +88,6 @@ void VoiceCall::captureLoop()
 
 void VoiceCall::receiveLoop()
 {
-
     PaDeviceIndex dev = Pa_GetDefaultOutputDevice();
     if (dev == paNoDevice)
     {
@@ -114,10 +122,8 @@ void VoiceCall::receiveLoop()
         while (true)
         {
             auto pkt = udp.recv();
-            if (pkt.empty())
-                break;
+            if (pkt.empty()) break;
 
-            // --- DEBUG PRINT LOGIC ---
             if (firstPacket)
             {
                 std::cout << "\r[voice] <<< Audio stream established! First packet received. >>>\n> " << std::flush;
@@ -127,10 +133,8 @@ void VoiceCall::receiveLoop()
             packetCounter++;
             if (packetCounter % 50 == 0)
             {
-                // Print a small dot every ~50 packets (about 1 second of audio)
                 std::cout << "." << std::flush;
             }
-            // -------------------------
 
             auto decoded = ADPCM::decode(pkt, decState);
             std::lock_guard<std::mutex> lock(queueMtx);
@@ -138,7 +142,6 @@ void VoiceCall::receiveLoop()
                 playbackQueue.push_back(s);
         }
 
-        // Write one frame — silence if queue empty
         std::vector<int16_t> frame(FRAMES, 0);
         {
             std::lock_guard<std::mutex> lock(queueMtx);

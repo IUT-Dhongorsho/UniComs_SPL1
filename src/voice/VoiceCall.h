@@ -17,15 +17,20 @@ public:
         Pa_Terminate(); 
     }
 
-    std::string       peerIp;
-    std::atomic<int>  peerPort{0};
     std::atomic<bool> active{false};
     UDPSocket         udp;
 
     void start(const std::string &ip, int port);
     void stop();
+    
+    // Safely update peer config from the network thread
+    void setPeer(const std::string &ip, int port);
 
 private:
+    std::string peerIp;
+    int         peerPort = 0;
+    std::mutex  peerMtx;
+
     std::thread  captureThread;
     std::thread  recvThread;
     ADPCM::State encState;

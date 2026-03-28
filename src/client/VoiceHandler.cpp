@@ -19,7 +19,7 @@ bool VoiceHandler::handleCallAccepted(const std::string& line, std::string& outI
         if (outPort != 0) {
             voiceCall.start(outIp, outPort);
         } else {
-            voiceCall.peerIp = outIp;
+            voiceCall.setPeer(outIp, 0);
         }
     }
     return true;
@@ -29,10 +29,9 @@ bool VoiceHandler::handleCallPeerPort(const std::string& line, std::string& outI
     if (line.rfind("CALL_PEER_PORT ", 0) != 0) return false;
     auto parts = splitMessage(line, ' ', 3);
     if (parts.size() >= 3) {
-        voiceCall.peerIp = parts[1];
-        voiceCall.peerPort = std::stoi(parts[2]);
-        outIp = voiceCall.peerIp;
-        outPort = voiceCall.peerPort;
+        outIp = parts[1];
+        outPort = std::stoi(parts[2]);
+        voiceCall.setPeer(outIp, outPort);
     }
     return true;
 }

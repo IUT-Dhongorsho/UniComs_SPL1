@@ -55,17 +55,15 @@ void ClientController::onServerMessage(const std::string &line)
 {
     ui.waiting = false;
 
+    // 1. Auth Responses
     if (line == "FOUND")
     {
         if (ui.signingUp)
         {
-            // Error: Trying to signup with existing name. Prompt for another instead of kicking to menu.
             terminal.printMsg(BOLD RED + std::string("[!] ") + RESET + "Username '" + ui.pendingUsername + "' already exists. Try another username (or type 'back'):");
-            // Stay in AuthStep::USERNAME
         }
         else
         {
-            // Success: Logging in
             ui.authStep = AuthStep::PASSWORD;
             terminal.setPasswordMode(true);
             terminal.printMsg("Password (or type 'back'): ");
@@ -77,22 +75,19 @@ void ClientController::onServerMessage(const std::string &line)
     {
         if (ui.signingUp)
         {
-            // Success: Name available for signup
             ui.authStep = AuthStep::CONFIRM_SIGNUP;
             terminal.printMsg("Username '" + ui.pendingUsername + "' available. Create account? (y/n) or type 'back': ");
         }
         else
         {
-            // Error: Trying to login with non-existent name. Prompt for another instead of kicking to menu.
             terminal.printMsg(BOLD RED + std::string("[!] ") + RESET + "User '" + ui.pendingUsername + "' not found. Try another username (or type 'back'):");
-            // Stay in AuthStep::USERNAME
         }
         return;
     }
 
+    // 2. Account / Login Status
     if (line.rfind("OK Signup successful", 0) == 0)
     {
-        // Account created, now force user back to the Choose Mode screen to Login
         ui.authStep = AuthStep::CHOOSE_MODE;
         ui.signingUp = false;
         terminal.printMsg(BOLD GREEN + std::string("OK") + RESET + line.substr(2));
@@ -126,17 +121,37 @@ void ClientController::onServerMessage(const std::string &line)
         return;
     }
 
-    // 5. Handle Errors
+    // 3. Room Management Responses
+    if (line.rfind("OK Joined ", 0) == 0)
+    {
+        ui.target = line.substr(10);
+        ui.screen = Screen::ROOM;
+        terminal.disableRawMode();
+        std::cout << "\033[2J\033[H" << "Joined " << BOLD YELLOW << ui.target << RESET << ". Type /help for commands.\n\n"
+                  << terminal.prompt() << std::flush;
+        terminal.enableRawMode();
+        return;
+    }
+
+    if (line.rfind("OK Room created: ", 0) == 0)
+    {
+        ui.target = line.substr(17);
+        ui.screen = Screen::ROOM;
+        terminal.disableRawMode();
+        std::cout << "\033[2J\033[H" << "Created and joined " << BOLD YELLOW << ui.target << RESET << ". Type /help for commands.\n\n"
+                  << terminal.prompt() << std::flush;
+        terminal.enableRawMode();
+        return;
+    }
+
+    // 4. Handle Errors
     if (line.rfind("ERR ", 0) == 0)
     {
         terminal.printMsg(BOLD RED + std::string("ERR") + RESET + line.substr(3));
-
-        // If an error happens during Auth, allow retry or fallback gracefully
         if (ui.screen == Screen::AUTH)
         {
             if (line == "ERR Invalid username or password")
             {
-                // Wrong password: Let them try again or go back
                 ui.authStep = AuthStep::PASSWORD;
                 terminal.setPasswordMode(true);
                 terminal.printMsg("Try again (or type 'back'): ");
@@ -151,7 +166,7 @@ void ClientController::onServerMessage(const std::string &line)
         return;
     }
 
-    // 6. Handle Messaging and Crypto (Existing Logic)
+    // 5. Handle Crypto DH Exchange
     if (crypto.handleDHReply(line) || crypto.handleDHInit(line))
     {
         auto p = splitMessage(line, ' ', 4);
@@ -159,6 +174,7 @@ void ClientController::onServerMessage(const std::string &line)
         return;
     }
 
+    // 6. Handle Incoming Text Messages (DMs and Rooms)
     if (line.rfind("MSG_FROM ", 0) == 0)
     {
         auto p = splitMessage(line, ' ', 3);
@@ -170,10 +186,88 @@ void ClientController::onServerMessage(const std::string &line)
         return;
     }
 
-    // 7. Informational / Generic Messages
+    if (line.rfind("ROOM_MSG ", 0) == 0)
+    {
+        auto p = splitMessage(line, ' ', 4);
+        if (p.size() == 4)
+        {
+            // p[1] is roomName, p[2] is sender, p[3] is content
+            terminal.printMsg(BOLD MAGENTA "[" + p[1] + "] " + BOLD YELLOW + p[2] + RESET + ": " + p[3]);
+        }
+        return;
+    }
+
+    // 7. Handle Voice Routing
+    std::string callSender;
+    if (voice.handleCallOffer(line, callSender)) {
+        terminal.printMsg(BOLD YELLOW + std::string("[!] ") + RESET + "Incoming call from " + callSender + "  \xe2\x86\x92  /accept or /reject");
+        return;
+    }
+
+    std::string outIp;
+    int outPort;
+    if (voice.handleCallAccepted(line, outIp, outPort)) {
+        if (outPort != 0) { 
+            net.send("CALL_PORT " + std::to_string(voice.getLocalPort()));
+        }
+        terminal.printMsg(BOLD GREEN + std::string("[voice] ") + RESET + "Call connected.");
+        return;
+    }
+
+    if (voice.handleCallPeerPort(line, outIp, outPort)) return;
+
+    if (voice.handleCallRejected(line)) {
+        terminal.printMsg(BOLD RED + std::string("[voice] ") + RESET + "Call rejected.");
+        return;
+    }
+
+    if (voice.handleCallEnded(line)) {
+        terminal.printMsg(BOLD BLUE + std::string("[voice] ") + RESET + "Call ended.");
+        return;
+    }
+
+    // 8. Handle File Routing
+    std::string fSender, fName, fSize, savedPath;
+    if (file.handleFileOffer(line, fSender, fName, fSize)) {
+        terminal.printMsg(BOLD YELLOW + std::string("[!] ") + RESET + fSender + " wants to send you " + fName + " (" + fSize + " bytes) \xe2\x86\x92 /accept or /reject");
+        return;
+    }
+    
+    if (file.handleFileAccepted(line)) {
+        terminal.printMsg(BOLD BLUE + std::string("[file] ") + RESET + "Sending file...");
+        return;
+    }
+
+    if (file.handleFileRejected(line)) {
+        terminal.printMsg(BOLD RED + std::string("[file] ") + RESET + "Transfer rejected.");
+        return;
+    }
+
+    if (file.handleFileIncoming(line)) {
+        terminal.printMsg(BOLD BLUE + std::string("[file] ") + RESET + "Receiving file...");
+        return;
+    }
+
+    if (file.handleFileData(line)) return;
+
+    if (file.handleFileEnd(line, savedPath)) {
+        if (!savedPath.empty()) 
+            terminal.printMsg(BOLD GREEN + std::string("[file] ") + RESET + "Saved to " + savedPath);
+        else 
+            terminal.printMsg(BOLD GREEN + std::string("[file] ") + RESET + "Sent successfully.");
+        return;
+    }
+
+    // 9. Informational / Generic Messages
     if (line.rfind("INFO ", 0) == 0)
     {
-        terminal.printMsg(BOLD BLUE + std::string("INFO") + RESET + line.substr(4));
+        std::string content = line.substr(5);
+        if (!ui.historyPeer.empty() && !content.empty() && content[0] == '[')
+            content = tryDecryptHistoryLine(content);
+        else
+            ui.historyPeer.clear();
+
+        terminal.printMsg(BOLD BLUE + std::string("INFO ") + RESET + content);
         return;
     }
 
@@ -200,8 +294,7 @@ void ClientController::handleInput(const std::string &line)
 
 void ClientController::handleAuthInput(const std::string &line)
 {
-    // Global "back" handler for any step past the main menu
-    if (ui.authStep != AuthStep::CHOOSE_MODE && (line == "back" || line == "BACK"))
+    if (ui.authStep != AuthStep::CHOOSE_MODE && (line == "back" || line == "BACK" || line == "/back"))
     {
         ui.authStep = AuthStep::CHOOSE_MODE;
         terminal.setPasswordMode(false);
@@ -225,7 +318,6 @@ void ClientController::handleAuthInput(const std::string &line)
         }
         else
         {
-            // Invalid choice handler
             terminal.printMsg(BOLD RED + std::string("[!] ") + RESET + "Invalid choice. Please try again (type 1 or 2).");
             terminal.showAuthScreen();
         }
@@ -240,7 +332,7 @@ void ClientController::handleAuthInput(const std::string &line)
             return;
         }
         ui.pendingUsername = line;
-        ui.waiting = true; // <-- LOCK UI
+        ui.waiting = true;
         net.send("CHECK_USER " + line);
         return;
     }
@@ -253,7 +345,7 @@ void ClientController::handleAuthInput(const std::string &line)
             terminal.setPasswordMode(true);
             terminal.printMsg("Choose password (or type 'back'): ");
         }
-        else // 'n' or anything else effectively acts as 'back'
+        else
         {
             ui.authStep = AuthStep::CHOOSE_MODE;
             terminal.showAuthScreen();
@@ -264,7 +356,7 @@ void ClientController::handleAuthInput(const std::string &line)
     if (ui.authStep == AuthStep::PASSWORD)
     {
         terminal.setPasswordMode(false);
-        ui.waiting = true; // <-- LOCK UI while server verifies password
+        ui.waiting = true; 
         if (ui.signingUp)
             net.send("SIGNUP " + ui.pendingUsername + " " + line);
         else
@@ -298,24 +390,27 @@ void ClientController::handleMenuInput(const std::string &line)
             terminal.printMsg(BOLD BLUE + std::string("INFO ") + RESET + "Initiating secure session with " + peer + "...");
         }
     }
-    else if (cmd == "join" && parts.size() >= 3)
+    else if (cmd == "join" && parts.size() >= 2)
     {
-        ui.target = parts[1];
-        ui.screen = Screen::ROOM;
-        net.send("JOIN " + parts[1] + " " + parts[2]);
-        terminal.disableRawMode();
-        std::cout << "\033[2J\033[H" << "Joined " << BOLD YELLOW << parts[1] << RESET << ". Type /help for commands.\n\n"
-                  << terminal.prompt() << std::flush;
-        terminal.enableRawMode();
+        // Wait for server to confirm via OK Joined before switching UI
+        std::string command = "JOIN " + parts[1];
+        if (parts.size() >= 3) command += " " + parts[2];
+        net.send(command);
     }
-    else if (cmd == "join" && parts.size() == 2)
+    else if (cmd == "join" && parts.size() < 2)
     {
-        terminal.printMsg(BOLD RED + std::string("ERR ") + RESET + "Usage: join <room> <password>");
+        terminal.printMsg(BOLD RED + std::string("ERR ") + RESET + "Usage: join <room> [password]");
     }
-    else if (cmd == "create" && parts.size() >= 3)
-        net.send("CREATE_ROOM " + parts[1] + " " + parts[2]);
-    else if (cmd == "create" && parts.size() == 2)
-        terminal.printMsg(BOLD RED + std::string("ERR ") + RESET + "Usage: create <room> <password>");
+    else if (cmd == "create" && parts.size() >= 2)
+    {
+        std::string command = "CREATE_ROOM " + parts[1];
+        if (parts.size() >= 3) command += " " + parts[2];
+        net.send(command);
+    }
+    else if (cmd == "create" && parts.size() < 2)
+    {
+        terminal.printMsg(BOLD RED + std::string("ERR ") + RESET + "Usage: create <room> [password]");
+    }
     else if (cmd == "users")
         net.send("LIST_USERS");
     else if (cmd == "rooms")
@@ -324,7 +419,7 @@ void ClientController::handleMenuInput(const std::string &line)
     {
         if (parts[1] == "dm")
         {
-            crypto.initiateSession(parts[2]); // Ensure crypto session is loaded
+            crypto.initiateSession(parts[2]); 
             ui.historyPeer = parts[2];
             net.send("HISTORY_DM " + parts[2]);
         }
@@ -372,7 +467,7 @@ void ClientController::handleChatInput(const std::string &line)
     {
         if (ui.screen == Screen::DM)
         {
-            crypto.initiateSession(ui.target); // Ensure crypto session is loaded
+            crypto.initiateSession(ui.target); 
             ui.historyPeer = ui.target;
             net.send("HISTORY_DM " + ui.target);
         }
@@ -412,6 +507,8 @@ void ClientController::handleChatInput(const std::string &line)
             net.send("CALL_REJECT");
         return;
     }
+    
+    // Default: Send standard message
     std::string toSend = crypto.encrypt(ui.target, line);
     net.send((ui.screen == Screen::DM ? "DM " : "MSG ") + ui.target + " " + toSend);
     terminal.printMsg(BOLD GREEN + std::string("you") + RESET + ": " + line);
