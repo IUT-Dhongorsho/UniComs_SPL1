@@ -5,59 +5,86 @@
 
 Terminal::Terminal(UIState &state) : state(state) {}
 
-Terminal::~Terminal() {
+Terminal::~Terminal()
+{
     disableRawMode();
 }
 
-void Terminal::enableRawMode() {
+void Terminal::enableRawMode()
+{
     tcgetattr(STDIN_FILENO, &origTermios);
     struct termios raw = origTermios;
     raw.c_lflag &= ~(ECHO | ICANON);
-    raw.c_cc[VMIN]  = 1;
+    raw.c_cc[VMIN] = 1;
     raw.c_cc[VTIME] = 0;
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
-void Terminal::disableRawMode() {
+void Terminal::disableRawMode()
+{
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &origTermios);
 }
 
-std::string Terminal::prompt() const {
-    switch (state.screen) {
-        case Screen::AUTH: return "> ";
-        case Screen::MENU: return "[" + state.username + "] > ";
-        case Screen::DM:   return "[" + state.username + " \xe2\x86\x92 " + state.target + "] > ";
-        case Screen::ROOM: return "[" + state.username + " @ " + state.target + "] > ";
+std::string Terminal::prompt() const
+{
+    switch (state.screen)
+    {
+    case Screen::AUTH:
+        return "> ";
+    case Screen::MENU:
+        return "[" + state.username + "] > ";
+    case Screen::DM:
+        return "[" + state.username + " \xe2\x86\x92 " + state.target + "] > ";
+    case Screen::ROOM:
+        return "[" + state.username + " @ " + state.target + "] > ";
     }
     return "> ";
 }
 
-void Terminal::printMsg(const std::string &msg) {
+void Terminal::printMsg(const std::string &msg)
+{
     std::lock_guard<std::mutex> lock(printMtx);
-    std::cout << "\r\033[K" << msg << "\n" << prompt() << inputBuf << std::flush;
+    std::cout << "\r\033[K" << msg << "\n"
+              << prompt() << inputBuf << std::flush;
 }
 
-void Terminal::showAuthScreen() {
+void Terminal::showAuthScreen()
+{
     std::cout << "\033[2J\033[H";
-    std::cout << "╔═══════════════════════════╗\n";
-    std::cout << "║          ChatApp          ║\n";
-    std::cout << "╚═══════════════════════════╝\n\n";
+    std::cout <<"\n\n\n";
+    std::cout << "██╗░░░██╗███╗░░██╗██╗░█████╗░░█████╗░███╗░░░███╗░██████╗\n";
+    std::cout << "██║░░░██║████╗░██║██║██╔══██╗██╔══██╗████╗░████║██╔════╝\n";
+    std::cout << "██║░░░██║██╔██╗██║██║██║░░╚═╝██║░░██║██╔████╔██║╚█████╗░\n";
+    std::cout << "██║░░░██║██║╚████║██║██║░░██╗██║░░██║██║╚██╔╝██║░╚═══██╗\n";
+    std::cout << "╚██████╔╝██║░╚███║██║╚█████╔╝╚█████╔╝██║░╚═╝░██║██████╔╝\n";
+    std::cout << "░╚═════╝░╚═╝░░╚══╝╚═╝░╚════╝░░╚════╝░╚═╝░░░░░╚═╝╚═════╝░\n\n\n";
 
-    if (state.authStep == AuthStep::CHOOSE_MODE) {
+    if (state.authStep == AuthStep::CHOOSE_MODE)
+    {
         std::cout << "Select an option:\n";
         std::cout << "  1. Login\n";
         std::cout << "  2. Signup\n";
         std::cout << "\nChoice: " << std::flush;
-    } else {
+    }
+    else
+    {
         std::string mode = state.signingUp ? "[SIGNUP]" : "[LOGIN]";
-        std::cout << mode << " (Type 'back' to return)\n";
-        if (state.authStep == AuthStep::USERNAME) {
+        // Updated instruction to match the strict /back requirement
+        std::cout << mode << " (Type '/back' to return)\n";
+
+        if (state.authStep == AuthStep::USERNAME)
+        {
             std::cout << "Enter username: " << std::flush;
+        }
+        else if (state.authStep == AuthStep::PASSWORD)
+        {
+            std::cout << (state.signingUp ? "Choose password: " : "Enter password: ") << std::flush;
         }
     }
 }
 
-void Terminal::showMenu() {
+void Terminal::showMenu()
+{
     std::cout << "\033[2J\033[H";
     std::cout << "Logged in as " << state.username << ".\n\n";
     std::cout << "  dm     <user>          start a DM\n";
@@ -71,11 +98,15 @@ void Terminal::showMenu() {
     std::cout << prompt() << std::flush;
 }
 
-void Terminal::showChatHelp() {
-    if (state.screen == Screen::ROOM) {
+void Terminal::showChatHelp()
+{
+    if (state.screen == Screen::ROOM)
+    {
         printMsg("  /history           show room chat history");
         printMsg("  /q                 go back to menu");
-    } else { // DM
+    }
+    else
+    { // DM
         printMsg("  /send <filepath>   send a file");
         printMsg("  /call              start a voice call");
         printMsg("  /history           show chat history");
@@ -86,25 +117,36 @@ void Terminal::showChatHelp() {
     }
 }
 
-std::string Terminal::readLine() {
+std::string Terminal::readLine()
+{
     inputBuf.clear();
     char c;
-    while (read(STDIN_FILENO, &c, 1) == 1) {
-        if (c == '\n' || c == '\r') {
-            std::cout << "\n" << std::flush;
+    while (read(STDIN_FILENO, &c, 1) == 1)
+    {
+        if (c == '\n' || c == '\r')
+        {
+            std::cout << "\n"
+                      << std::flush;
             std::string result = inputBuf;
             inputBuf.clear();
             return result;
         }
-        if (c == 127 || c == '\b') {
-            if (!inputBuf.empty()) {
+        if (c == 127 || c == '\b')
+        {
+            if (!inputBuf.empty())
+            {
                 inputBuf.pop_back();
                 if (!state.passwordMode)
                     std::cout << "\b \b" << std::flush;
             }
             continue;
         }
-        if (c == 3) { disableRawMode(); std::cout << "\n"; exit(0); }
+        if (c == 3)
+        {
+            disableRawMode();
+            std::cout << "\n";
+            exit(0);
+        }
         inputBuf += c;
         if (!state.passwordMode)
             std::cout << c << std::flush;
