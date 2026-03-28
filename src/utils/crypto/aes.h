@@ -2,30 +2,20 @@
 #include <vector>
 #include <cstdint>
 
-class AES256
-{
+class AES256 {
 public:
-    AES256(const std::vector<uint8_t> &key,
-           const std::vector<uint8_t> &nonce);
+    // key = 32 bytes, iv = 16 bytes (used as the initial counter block)
+    AES256(const std::vector<uint8_t>& key, const std::vector<uint8_t>& iv);
 
-    std::vector<uint8_t> encrypt(const std::vector<uint8_t> &plaintext);
-    std::vector<uint8_t> decrypt(const std::vector<uint8_t> &ciphertext);
+    // encrypt and decrypt are identical in CTR mode
+    std::vector<uint8_t> encrypt(const std::vector<uint8_t>& in);
+    std::vector<uint8_t> decrypt(const std::vector<uint8_t>& in);
 
 private:
-    void keyExpansion();
-    void cipher(const std::vector<uint8_t> &in, std::vector<uint8_t> &out);
-
-    void subBytes(uint8_t state[4][4]);
-    void shiftRows(uint8_t state[4][4]);
-    void mixColumns(uint8_t state[4][4]);
-    void addRoundKey(uint8_t state[4][4], int round);
-
+    void    expandKey();
+    void    encryptBlock(const uint8_t in[16], uint8_t out[16]);
     uint8_t xtime(uint8_t x);
 
-private:
-    std::vector<uint8_t> key;      // 32 bytes
-    std::vector<uint8_t> roundKey; // 240 bytes
-
-    std::vector<uint8_t> nonce; // 16 bytes
-    uint64_t counter;
+    uint8_t rk[240];   // round keys
+    uint8_t iv[16];    // initial counter block
 };
