@@ -264,7 +264,7 @@ Tabib Hassan (Client Developer)
 - Integrated all client components
 - Managed screen transitions
 
-Nafis Ahnaf Jamil (Server Developer)
+Nafis Ahnaf Jamil (Database Developer)
 - Implemented TCP socket server from scratch
 - Designed CSV-based database system
 - Built message routing and broadcast mechanisms
